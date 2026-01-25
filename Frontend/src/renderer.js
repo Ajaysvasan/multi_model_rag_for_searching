@@ -283,8 +283,25 @@ async function toggleRecording() {
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Preferred MP3 type, fallback to webm if not supported by browser/Electron
-      const mimeType = MediaRecorder.isTypeSupported('audio/mpeg') ? 'audio/mpeg' : 'audio/webm';
+      // Detect supported MIME type and determine the appropriate file extension
+      // We check for MP3, WAV, Ogg, AAC/MP4, and WebM in order of preference
+      let mimeType = 'audio/webm';
+      let extension = 'webm';
+
+      if (MediaRecorder.isTypeSupported('audio/mpeg')) {
+        mimeType = 'audio/mpeg';
+        extension = 'mp3';
+      } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+        mimeType = 'audio/wav';
+        extension = 'wav';
+      } else if (MediaRecorder.isTypeSupported('audio/ogg; codecs=opus')) {
+        mimeType = 'audio/ogg; codecs=opus';
+        extension = 'ogg';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+        extension = 'm4a';
+      }
+      
       mediaRecorder = new MediaRecorder(stream, { mimeType });
       audioChunks = [];
 
@@ -295,9 +312,11 @@ async function toggleRecording() {
       };
 
       mediaRecorder.onstop = async () => {
-        // Convert audio chunks into a single Blob (using .mp3 extension as requested)
-        const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
-        const audioFile = new File([audioBlob], `speech_query_${Date.now()}.mp3`, { type: 'audio/mp3' });
+        // Create a Blob using the actual recorded MIME type to ensure file integrity
+        const audioBlob = new Blob(audioChunks, { type: mimeType });
+        
+        // Generate a filename with the correct extension (mp3 or webm) based on browser support
+        const audioFile = new File([audioBlob], `speech_query_${Date.now()}.${extension}`, { type: mimeType });
         
         // Add recorded audio to staged documents for preview
         uploadedDocs.push({
