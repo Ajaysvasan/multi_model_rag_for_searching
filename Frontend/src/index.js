@@ -1,10 +1,34 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
 const ragService = require('./services/ragService');
 
 let mainWindow;
 let mockStorage = []; // Simulated database for chat sessions
 let documentStorage = []; // Simulated database for uploaded document metadata
+
+/**
+ * Recursively gets all file paths from a directory.
+ * @param {string} dirPath 
+ * @param {string[]} arrayOfFiles 
+ * @returns {string[]}
+ */
+function getAllFiles(dirPath, arrayOfFiles) {
+  const files = fs.readdirSync(dirPath);
+
+  arrayOfFiles = arrayOfFiles || [];
+
+  files.forEach(function(file) {
+    const fullPath = path.join(dirPath, file);
+    if (fs.statSync(fullPath).isDirectory()) {
+      arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(fullPath);
+    }
+  });
+
+  return arrayOfFiles;
+}
 
 /**
  * Shared logic for uploading documents or folders.
@@ -34,7 +58,7 @@ async function performUpload(type = 'document') {
     }
   }
 
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+  const { canceled, filePaths: selectedPaths } = await dialog.showOpenDialog(mainWindow, {
     properties: properties,
     filters: filters
   });
@@ -43,20 +67,28 @@ async function performUpload(type = 'document') {
     return { success: false, message: 'Upload canceled' };
   }
 
+  let finalFilePaths = selectedPaths;
+  if (type === 'folder') {
+    finalFilePaths = [];
+    selectedPaths.forEach(folderPath => {
+      finalFilePaths.push(...getAllFiles(folderPath));
+    });
+  }
+
   try {
     // BACKEND CALL: 'ragService.uploadDocuments' is where you'd trigger your
     // Python/Node service to start the ingestion pipeline (OCR -> Chunk -> Embed -> Vector DB).
-    const result = await ragService.uploadDocuments(filePaths, type);
+    const result = await ragService.uploadDocuments(finalFilePaths, type);
     
     if (result.success) {
       const uploadedFiles = [];
       // Upon successful ingestion, we store the metadata locally to show in the UI.
       // In a production app, you might fetch this list from your Vector DB instead.
-      filePaths.forEach(filePath => {
+      finalFilePaths.forEach(filePath => {
         const doc = {
           name: path.basename(filePath),
           path: filePath,
-          type: type,
+          type: type === 'folder' ? 'document' : type,
           date: new Date().toLocaleString()
         };
         documentStorage.push(doc);
