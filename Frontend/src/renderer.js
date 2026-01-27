@@ -531,14 +531,3 @@ document.querySelectorAll('.upload-item').forEach(button => {
     handleUpload(type);
   });
 });
-
-// Sidebar upload actions
-document.getElementById('sidebar-upload-file').addEventListener('click', (e) => {
-  e.stopPropagation();
-  handleUpload('document', e.currentTarget);
-});
-
-document.getElementById('sidebar-upload-folder').addEventListener('click', (e) => {
-  e.stopPropagation();
-  handleUpload('folder', e.currentTarget);
-});
