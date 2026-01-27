@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   uploadDocuments: (type) => ipcRenderer.invoke('documents:upload', type),
   getDocuments: () => ipcRenderer.invoke('documents:get-all'),
   
+  /**
+   * Listen for document list refreshes triggered by the Main process.
+   * This is essential when the user uses the Native Application Menu (File -> Upload).
+   */
+  onDocumentsRefreshed: (callback) => ipcRenderer.on('documents:refreshed', () => callback()),
+  
   // History management
   saveHistory: (chatSession) => ipcRenderer.invoke('history:save', chatSession),
   getHistory: () => ipcRenderer.invoke('history:get-all'),

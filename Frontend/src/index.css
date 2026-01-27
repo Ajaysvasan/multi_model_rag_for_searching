@@ -65,11 +65,42 @@ body, html {
   margin-bottom: 25px;
 }
 
+.sidebar-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-right: 5px;
+}
+
+.sidebar-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.sidebar-actions button {
+  background: transparent;
+  border: none;
+  color: #8e8ea0;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.sidebar-actions button:hover {
+  background-color: #2b2c2f;
+  color: white;
+}
+
 .sidebar-section h3 {
   font-size: 0.8rem;
   color: #8e8ea0;
   text-transform: uppercase;
-  margin-bottom: 10px;
+  margin: 0;
   padding-left: 5px;
 }
 

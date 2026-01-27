@@ -27,6 +27,12 @@ let isRecording = false;
 window.addEventListener('DOMContentLoaded', async () => {
   await refreshHistorySidebar();
   await refreshDocumentList();
+
+  // Listen for refresh requests from the native app menu (File -> Upload)
+  // This ensures the sidebar updates even if the upload wasn't started from the UI buttons.
+  window.electronAPI.onDocumentsRefreshed(async () => {
+    await refreshDocumentList();
+  });
 });
 
 // Configure Markdown parser for bot responses
@@ -474,29 +480,36 @@ window.addEventListener('click', () => {
 
 /**
  * Handles the upload trigger for specific media types.
+ * @param {string} type - 'document', 'folder', 'video', etc.
+ * @param {HTMLElement} sourceButton - The button that triggered the upload (for showing loading state).
  */
-async function handleUpload(type) {
-  const uploadBtn = document.getElementById('upload-btn');
+async function handleUpload(type, sourceButton = null) {
+  const uploadBtn = sourceButton || document.getElementById('upload-btn');
   const uploadMenu = document.getElementById('upload-menu');
   const originalHTML = uploadBtn.innerHTML;
   
-  uploadMenu.classList.remove('show');
+  if (uploadMenu) {
+    uploadMenu.classList.remove('show');
+  }
 
   try {
+    // Show loading state while the Main process handles file selection and RAG ingestion.
     uploadBtn.disabled = true;
     uploadBtn.innerHTML = '<span class="loading-spinner"></span>';
     
-    // Request Main process to open file dialog
+    // Request Main process to open file dialog and process files.
     const result = await window.electronAPI.uploadDocuments(type);
     
     if (result.success) {
       if (result.uploadedFiles) {
-        // Stage the files in the preview area
+        // Stage the files in the preview area if they are intended for the next chat prompt.
         uploadedDocs.push(...result.uploadedFiles);
         renderUploadedDocs();
       } else {
+        // Show confirmation if it was a direct background ingestion.
         appendMessage(false, `✅ **Success**: ${result.message}`);
       }
+      // Refresh the sidebar list to show the newly indexed documents.
       await refreshDocumentList();
     } else if (result.message !== 'Upload canceled') {
       appendMessage(false, `❌ **Error**: ${result.message}`);
@@ -512,8 +525,20 @@ async function handleUpload(type) {
 
 // Attach listeners to all upload menu items
 document.querySelectorAll('.upload-item').forEach(button => {
-  button.addEventListener('click', () => {
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
     const type = button.getAttribute('data-type');
     handleUpload(type);
   });
+});
+
+// Sidebar upload actions
+document.getElementById('sidebar-upload-file').addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleUpload('document', e.currentTarget);
+});
+
+document.getElementById('sidebar-upload-folder').addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleUpload('folder', e.currentTarget);
 });
