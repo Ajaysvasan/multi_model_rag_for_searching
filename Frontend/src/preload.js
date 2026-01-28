@@ -24,5 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // History management
   saveHistory: (chatSession) => ipcRenderer.invoke('history:save', chatSession),
   getHistory: () => ipcRenderer.invoke('history:get-all'),
-  deleteHistory: (sessionId) => ipcRenderer.invoke('history:delete', sessionId)
+  deleteHistory: (sessionId) => ipcRenderer.invoke('history:delete', sessionId),
+
+  // Theme management
+  selectThemeImage: () => ipcRenderer.invoke('theme:select-image'),
+  getDefaultImagePath: () => ipcRenderer.invoke('theme:get-default-path')
 });

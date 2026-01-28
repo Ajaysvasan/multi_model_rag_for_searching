@@ -1,10 +1,15 @@
 // --- UI Component References ---
 const chatContainer = document.getElementById('chat-container');
+const mainContent = document.getElementById('main-content');
 const messageInput = document.getElementById('message-input');
 const sendButton = document.getElementById('send-button');
 const micBtn = document.getElementById('mic-btn');
 const chatHistoryList = document.getElementById('chat-history');
+const chatSearch = document.getElementById('chat-search');
 const documentList = document.getElementById('document-list');
+const scrollDownBtn = document.getElementById('scroll-down-btn');
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
 
 // --- State Management ---
 // Tracks the current active session (messages, title, id)
@@ -28,10 +33,22 @@ window.addEventListener('DOMContentLoaded', async () => {
   await refreshHistorySidebar();
   await refreshDocumentList();
 
+  // Initial state should be new chat mode if no session is loaded or active
+  if (currentSession.messages.length === 0) {
+    mainContent.classList.add('new-chat-mode');
+    chatContainer.innerHTML = '';
+  }
+
   // Listen for refresh requests from the native app menu (File -> Upload)
   // This ensures the sidebar updates even if the upload wasn't started from the UI buttons.
   window.electronAPI.onDocumentsRefreshed(async () => {
     await refreshDocumentList();
+  });
+
+  // Handle chat history search
+  chatSearch.addEventListener('input', async (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    await refreshHistorySidebar(searchTerm);
   });
 });
 
@@ -146,19 +163,26 @@ async function saveCurrentSession() {
 
 /**
  * Re-renders the sidebar chat history list.
+ * @param {string} filter - Optional search term to filter chat titles.
  */
-async function refreshHistorySidebar() {
+async function refreshHistorySidebar(filter = chatSearch ? chatSearch.value : '') {
   const history = await window.electronAPI.getHistory();
   chatHistoryList.innerHTML = '';
   
-  if (history.length === 0) {
-    chatHistoryList.innerHTML = '<li>No history</li>';
+  
+  const filteredHistory = history.filter(session => 
+    session.title.toLowerCase().includes(filter.toLowerCase())
+  );
+  
+  if (filteredHistory.length === 0) {
+    chatHistoryList.innerHTML = `<li>${filter ? 'No matches' : 'No history'}</li>`;
+    return;
   }
 
-  history.slice().reverse().forEach(session => {
+  filteredHistory.slice().reverse().forEach(session => {
     const li = document.createElement('li');
     li.dataset.id = session.id;
-    if (session.id === currentSession.id) li.style.backgroundColor = '#2b2c2f';
+    if (session.id === currentSession.id) li.classList.add('active');
     
     const titleSpan = document.createElement('span');
     titleSpan.className = 'session-title';
@@ -240,7 +264,21 @@ function startNewChat() {
   };
   uploadedDocs = [];
   renderUploadedDocs();
-  chatContainer.innerHTML = '<div class="message bot-message"><div class="message-content">New session started. How can I help?</div></div>';
+  chatContainer.innerHTML = '';
+  mainContent.classList.add('new-chat-mode');
+  
+  // Ensure input is enabled and cleared when starting a new chat
+  messageInput.disabled = false;
+  messageInput.value = '';
+  messageInput.style.height = 'auto';
+  
+  if (chatSearch) chatSearch.value = '';
+  
+  // Force focus after a short delay to ensure DOM state is settled
+  setTimeout(() => {
+    messageInput.focus();
+  }, 0);
+  
   refreshHistorySidebar();
 }
 
@@ -254,10 +292,15 @@ async function loadSession(sessionId) {
 
   currentSession = session;
   chatContainer.innerHTML = '';
+  mainContent.classList.remove('new-chat-mode');
   
   session.messages.forEach(msg => {
     appendMessage(msg.isUser, msg.content, msg.sources, false);
   });
+  
+  // Ensure input is enabled when switching sessions
+  messageInput.disabled = false;
+  messageInput.focus();
   
   await refreshHistorySidebar();
 }
@@ -368,6 +411,10 @@ async function handleSendMessage() {
   if (!message && !audioQuery && uploadedDocs.length === 0) return;
 
   // 1. Render user message bubble
+  if (mainContent.classList.contains('new-chat-mode')) {
+    mainContent.classList.remove('new-chat-mode');
+  }
+
   if (audioQuery) {
     appendMessage(true, `🎤 Voice Query: ${audioQuery.name}`);
   } else {
@@ -453,10 +500,24 @@ async function handleSendMessage() {
 messageInput.addEventListener('input', function() {
   this.style.height = 'auto';
   this.style.height = (this.scrollHeight) + 'px';
+
+  // Return to centered "New Chat" mode if input is cleared and no messages exist
+  if (currentSession.messages.length === 0) {
+    if (this.value.trim().length > 0) {
+      mainContent.classList.remove('new-chat-mode');
+    } else {
+      mainContent.classList.add('new-chat-mode');
+    }
+  }
 });
 
 sendButton.addEventListener('click', handleSendMessage);
 micBtn.addEventListener('click', toggleRecording);
+
+// Explicit focus on click to ensure cursor appears
+messageInput.addEventListener('click', () => {
+  messageInput.focus();
+});
 
 // Allow Enter key to send (Shift+Enter for newline)
 messageInput.addEventListener('keydown', (e) => {
@@ -476,7 +537,89 @@ document.getElementById('upload-btn').addEventListener('click', (e) => {
 
 window.addEventListener('click', () => {
   document.getElementById('upload-menu').classList.remove('show');
+  document.getElementById('settings-menu').classList.remove('show');
 });
+
+// --- Settings & Appearance Logic ---
+
+const settingsBtn = document.getElementById('settings-btn');
+const settingsMenu = document.getElementById('settings-menu');
+
+// Toggle Settings Menu
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  settingsMenu.classList.toggle('show');
+  // Close upload menu if open
+  document.getElementById('upload-menu').classList.remove('show');
+});
+
+// Theme Switching
+document.querySelectorAll('.appearance-item').forEach(button => {
+  button.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const theme = button.getAttribute('data-theme');
+    
+    if (theme === 'custom') {
+      let imagePath = localStorage.getItem('customThemePath');
+      if (!imagePath) {
+        imagePath = await window.electronAPI.getDefaultImagePath();
+      } else {
+        // Optional: still allow user to pick a NEW one if they click it again?
+        // Let's stick to the requirement: "When Custom Image theme is selected: Open a native Electron file picker"
+        // But if they just want to use the existing one, we should probably check if they want to change it.
+        // For simplicity and following the "it is not working" feedback, let's make it easy to select.
+        const newPath = await window.electronAPI.selectThemeImage();
+        if (newPath) imagePath = newPath;
+      }
+      
+      if (imagePath) {
+        applyCustomTheme(imagePath);
+        localStorage.setItem('theme', 'custom');
+        localStorage.setItem('customThemePath', imagePath);
+      }
+    } else {
+      document.body.classList.remove('custom-theme');
+      if (theme === 'dark') {
+        document.body.classList.add('dark-mode');
+        document.body.classList.remove('light-mode');
+        localStorage.setItem('baseTheme', 'dark');
+      } else {
+        document.body.classList.add('light-mode');
+        document.body.classList.remove('dark-mode');
+        localStorage.setItem('baseTheme', 'light');
+      }
+      localStorage.setItem('theme', theme);
+    }
+    settingsMenu.classList.remove('show');
+  });
+});
+
+function applyCustomTheme(imagePath) {
+  document.body.classList.add('custom-theme');
+  // Normalize backslashes to forward slashes for URL compatibility
+  const normalizedPath = imagePath.replace(/\\/g, '/');
+  const formattedPath = `local-resource://${normalizedPath}`;
+  document.documentElement.style.setProperty('--bg-image', `url(${JSON.stringify(formattedPath)})`);
+}
+
+// Load saved theme
+const savedTheme = localStorage.getItem('theme');
+const savedBaseTheme = localStorage.getItem('baseTheme') || 'dark';
+
+if (savedBaseTheme === 'dark') {
+  document.body.classList.add('dark-mode');
+  document.body.classList.remove('light-mode');
+} else {
+  document.body.classList.add('light-mode');
+  document.body.classList.remove('dark-mode');
+}
+
+if (savedTheme === 'custom') {
+  const customPath = localStorage.getItem('customThemePath');
+  if (customPath) {
+    applyCustomTheme(customPath);
+  }
+}
 
 /**
  * Handles the upload trigger for specific media types.
@@ -530,4 +673,30 @@ document.querySelectorAll('.upload-item').forEach(button => {
     const type = button.getAttribute('data-type');
     handleUpload(type);
   });
+});
+
+// --- Scroll Down Logic ---
+chatContainer.addEventListener('scroll', () => {
+  // Show button if user scrolls up more than 100px from the bottom
+  const threshold = 100;
+  const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight <= threshold;
+  
+  if (isAtBottom) {
+    scrollDownBtn.classList.remove('show');
+  } else {
+    scrollDownBtn.classList.add('show');
+  }
+});
+
+scrollDownBtn.addEventListener('click', () => {
+  chatContainer.scrollTo({
+    top: chatContainer.scrollHeight,
+    behavior: 'smooth'
+  });
+});
+
+// Sidebar Toggle Logic
+sidebarToggle.addEventListener('click', () => {
+  const isClosed = sidebar.classList.toggle('closed');
+  sidebarToggle.title = isClosed ? 'Open Sidebar' : 'Close Sidebar';
 });
