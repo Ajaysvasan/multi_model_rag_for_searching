@@ -11,9 +11,6 @@ class ImagePreprocessor:
         self.max_dimension = 1024
         self.min_dimension = 32
         self.standard_size = 384, 384
-        self.output_dir = r"D:\Don\multi_model_rag_for_searching\backend\processed_image"
-
-        os.makedirs(self.output_dir, exist_ok=True)
 
     def process_directory(self, dir_path):
         print("Inside process directry: ")
@@ -32,11 +29,9 @@ class ImagePreprocessor:
 
             img = self.preprocess_image(full_path)
 
-            name = os.path.splitext(filename)[0]
-            output_path = os.path.join(self.output_dir, f"{name}.png")
-
             # img.save(output_path)
-            processed_files.append((img, output_path))
+            # Don't want to save the images as we don't want processed image to be shown.
+            processed_files.append((img, full_path))
 
         return processed_files
     
@@ -51,8 +46,8 @@ class ImagePreprocessor:
             print(img.size)
             # print(type(img))
             
-            color_enhancer = ImageEnhance.Color(img)
-            img = color_enhancer.enhance(3.0) # It enhance all the 3 colors Red, Green, Blue
+            brightness_enhancer = ImageEnhance.Brightness(img)
+            img = brightness_enhancer.enhance(3.0) # It enhance all the 3 colors Red, Green, Blue
 
             # As we are using contrast below we can enhance the color above.
             print("Colour enhanced")
@@ -99,9 +94,12 @@ class ImagePreprocessor:
         return True, None
 
 
-file_directory = input("Enter a valid images file directory : ")
-images = ImagePreprocessor()
+if __name__ == "__main__":
+    file_directory = input("Enter a valid images file directory : ")
+    images = ImagePreprocessor()
 
-preprocessed_images = images.process_directory(file_directory)
+    # Get the directory where images of users are stored and make it process.
 
-print(preprocessed_images)
+    preprocessed_images = images.process_directory(file_directory)
+
+    print(preprocessed_images)
