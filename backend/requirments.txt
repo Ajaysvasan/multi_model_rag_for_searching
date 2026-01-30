@@ -1,0 +1,12 @@
+# Required packages for text extraction
+
+# For .docx files
+python-docx>=0.8.11
+
+# For .pdf files
+PyPDF2>=3.0.0
+
+# For legacy .doc files (optional - requires system dependencies)
+# textract>=1.6.5
+# Note: textract requires additional system packages like antiword, unrtf, etc.
+# Consider using python-docx2txt or mammoth as alternatives for .doc files
