@@ -94,12 +94,12 @@ class ImagePreprocessor:
         return True, None
 
 
-if __name__ == "__main__":
-    file_directory = input("Enter a valid images file directory : ")
-    images = ImagePreprocessor()
+# if __name__ == "__main__":
+#     file_directory = input("Enter a valid images file directory : ")
+#     images = ImagePreprocessor()
 
-    # Get the directory where images of users are stored and make it process.
+#     # Get the directory where images of users are stored and make it process.
 
-    preprocessed_images = images.process_directory(file_directory)
+#     preprocessed_images = images.process_directory(file_directory)
 
-    print(preprocessed_images)
+#     print(preprocessed_images)
