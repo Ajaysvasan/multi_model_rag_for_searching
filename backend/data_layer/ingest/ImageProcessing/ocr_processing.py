@@ -44,36 +44,29 @@ class TesseractInstaller:
 
         # Final check — is tesseract callable
         if success and shutil.which("tesseract"):
-            print("Tesseract installed successfully.")
             return True
 
-        print("Installation finished but tesseract is still not found in PATH.")
         return False
 
     # Installation for Windows OS
     
     def _install_windows(self) -> bool:
-        print("Downloading Tesseract installer for Windows ...")
 
         installer_path = os.path.join(tempfile.gettempdir(), "tesseract-setup.exe")
 
         try:
             urllib.request.urlretrieve(self.WINDOWS_INSTALLER_URL, installer_path)
         except Exception as e:
-            print(f"Download failed: {e}")
-            return False
+            return e
 
-        print("Running installer silently — this may take a moment ...")
 
         try:
             # /S = silent install; installs to default dir and updates PATH
             subprocess.run([installer_path, "/S"], check=True)
         except subprocess.CalledProcessError as e:
-            print(f"Installer exited with error: {e}")
-            return False
+            return e
         except Exception as e:
-            print(f"Failed to run installer: {e}")
-            return False
+            return e
         finally:
             # Clean up the downloaded exe regardless of outcome
             if os.path.exists(installer_path):
@@ -111,13 +104,11 @@ class TesseractInstaller:
             os.environ["PATH"] = sys_path + os.pathsep + user_path
         except Exception as e:
             # Non-fatal — worst case the user restarts the terminal
-            print(f"Could not refresh PATH from registry: {e}")
-            print(f"If tesseract is not found, restart your terminal.")
+            return e
 
     # Installer for Linux OS
     def _install_linux(self) -> bool:
         distro = self._detect_linux_distro()
-        print(f"Detected Linux distribution: {distro}")
 
         # Map each known distro family to its install command
         commands = {
@@ -127,7 +118,6 @@ class TesseractInstaller:
         }
 
         if distro == "debian":
-            print("Installing tesseract via apt ...")
             try:
                 subprocess.run(["sudo", "apt-get", "update"], check=True)
                 subprocess.run(
@@ -136,11 +126,9 @@ class TesseractInstaller:
                 )
                 return True
             except subprocess.CalledProcessError as e:
-                print(f"apt install failed: {e}")
-                return False
+                return e
 
         elif distro == "fedora":
-            print("Installing tesseract via dnf ...")
             try:
                 subprocess.run(
                     ["sudo", "dnf", "install", "-y", "tesseract"],
@@ -148,11 +136,9 @@ class TesseractInstaller:
                 )
                 return True
             except subprocess.CalledProcessError as e:
-                print(f"dnf install failed: {e}")
-                return False
+                return e
 
         elif distro == "arch":
-            print("Installing tesseract via pacman ...")
             try:
                 subprocess.run(
                     ["sudo", "pacman", "-S", "-y", "tesseract", "tesseract-data-eng"],
@@ -160,12 +146,10 @@ class TesseractInstaller:
                 )
                 return True
             except subprocess.CalledProcessError as e:
-                print(f"pacman install failed: {e}")
-                return False
+                return e
 
         else:
             # Unknown distro — try apt as a best-effort fallback
-            print(f"Unknown distro '{distro}'. Trying apt as fallback ...")
             try:
                 subprocess.run(["sudo", "apt-get", "update"], check=True)
                 subprocess.run(
@@ -174,9 +158,7 @@ class TesseractInstaller:
                 )
                 return True
             except Exception as e:
-                print(f"Fallback install failed: {e}")
-                print("Please install tesseract manually: sudo apt-get install tesseract-ocr")
-                return False
+                return e
 
     @staticmethod
     def _detect_linux_distro() -> str:
@@ -206,7 +188,6 @@ class TesseractInstaller:
     def _install_macos(self) -> bool:
         # Homebrew is required; install it first if missing
         if not shutil.which("brew"):
-            print("Homebrew not found. Installing Homebrew first ...")
             try:
                 subprocess.run(
                     [
@@ -216,16 +197,13 @@ class TesseractInstaller:
                     check=True,
                 )
             except subprocess.CalledProcessError as e:
-                print(f"Homebrew installation failed: {e}")
-                return False
+                return e
 
-        print("Installing tesseract via Homebrew ...")
         try:
             subprocess.run(["brew", "install", "tesseract"], check=True)
             return True
         except subprocess.CalledProcessError as e:
-            print(f"Homebrew install failed: {e}")
-            return False
+            return e
 
 
 # Main OCR Processor
@@ -240,11 +218,9 @@ class OCRProcessor:
         if shutil.which("tesseract"):
             # Already installed — just print the version and move on
             version = pytesseract.get_tesseract_version()
-            print(f"Tesseract OCR v{version} found - Running in OFFLINE mode")
             return
 
-        # Not found — attempt automatic installation
-        print("Tesseract OCR not found. Attempting automatic installation ...")
+        # Not found — attempt automatic installation=
         installer = TesseractInstaller()
         success = installer.install()
 
