@@ -59,7 +59,9 @@ class TextChunker:
                 for sent in sentences:
                     chunks.append(
                         self._emit_chunk(
-                            [sent],
+                            [
+                                (sent, 0, 0)
+                            ],  # Note: You might need to adjust start/end calc here if critical
                             document_id,
                             normalization_version,
                             start,
@@ -74,12 +76,25 @@ class TextChunker:
                 para_index += 1
                 continue
 
+            # Check if adding this paragraph fits in target
             if current_tokens + tokens <= self.target_tokens:
                 current_paras.append((para_text, start, end))
                 current_tokens += tokens
                 i += 1
                 para_index += 1
             else:
+                # --- FIX START ---
+                # If current_paras is empty, it means this SINGLE paragraph is > target_tokens
+                # but < max_tokens. We MUST accept it to avoid an infinite loop or crash.
+                if not current_paras:
+                    current_paras.append((para_text, start, end))
+                    current_tokens += tokens
+                    i += 1
+                    para_index += 1
+                    continue
+                # --- FIX END ---
+
+                # Emit what we have so far
                 chunks.append(
                     self._emit_chunk(
                         current_paras,
@@ -94,9 +109,14 @@ class TextChunker:
                 )
                 chunk_index += 1
 
-                # overlap handling
+                # Overlap handling
                 current_paras, current_tokens = self._apply_overlap(current_paras)
 
+                # We do NOT increment 'i' here because we still need to process
+                # the current paragraph (paragraphs[i]) in the next iteration
+                # (now that the buffer is cleared/overlapped).
+
+        # Flush any remaining paragraphs
         if current_paras:
             chunks.append(
                 self._emit_chunk(

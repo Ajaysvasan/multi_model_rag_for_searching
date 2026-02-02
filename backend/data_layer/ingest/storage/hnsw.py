@@ -4,7 +4,7 @@ import faiss
 import numpy as np
 
 try:
-    from storage.embedding import EmbeddingRecord
+    from .embedding import EmbeddingRecord
 except Exception as e:
     raise ImportError(f"The following exception occured: \n{e}")
 
