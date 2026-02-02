@@ -3,8 +3,6 @@
 import torch
 import numpy as np
 from transformers import CLIPProcessor, CLIPModel
-from backend.data_layer.ingest.ImageProcessing.image_processing import ImagePreprocessor
-from backend.data_layer.ingest.ImageProcessing.image_captioning import ImageCaptioner
 
 class VisualEmbedder:
     def __init__(self, device=None):
@@ -40,25 +38,25 @@ class VisualEmbedder:
         return image_features[0].cpu().numpy()
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    file_directory = input("Enter a valid images file directory : ")
-    images = ImagePreprocessor()
+    # file_directory = input("Enter a valid images file directory : ")
+    # images = ImagePreprocessor()
 
-    captioning = ImageCaptioner()
-    visual_embedding = VisualEmbedder()
-    # Get the directory where images of users are stored and make it process.
+    # captioning = ImageCaptioner()
+    # visual_embedding = VisualEmbedder()
+    # # Get the directory where images of users are stored and make it process.
 
-    preprocessed_images = images.process_directory(file_directory)
-    # [(img , src_path)  , (img , src_path) , ...]
-    for img,filename in preprocessed_images:
+    # preprocessed_images = images.process_directory(file_directory)
+    # # [(img , src_path)  , (img , src_path) , ...]
+    # for img,filename in preprocessed_images:
         
-        captioner = captioning.generate_caption(img)
+    #     captioner = captioning.generate_caption(img)
 
-        visualEmbedding =visual_embedding.generate_embedding(img)
-        print("Embedding for the image")
-        print(visualEmbedding)
+    #     visualEmbedding =visual_embedding.generate_embedding(img)
+    #     print("Embedding for the image")
+    #     print(visualEmbedding)
 
-        print(captioner)
+    #     print(captioner)
 
-        print()
+    #     print()

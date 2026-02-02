@@ -3,7 +3,6 @@
 
 import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
-from backend.data_layer.ingest.ImageProcessing.image_processing import ImagePreprocessor
 
 
 class ImageCaptioner:
@@ -46,16 +45,3 @@ class ImageCaptioner:
         )
 
         return caption.strip()
-
-# file_directory = input("Enter a valid images file directory : ")
-# images = ImagePreprocessor()
-
-# captioning = ImageCaptioner()
-# # Get the directory where images of users are stored and make it process.
-
-# preprocessed_images = images.process_directory(file_directory)
-# # [(img , src_path)  , (img , src_path) , ...]
-# for img,filename in preprocessed_images:
-    
-#     caption = captioning.generate_caption(img)
-#     print(caption)
