@@ -3,6 +3,8 @@ torch
 transformers
 sentence-transformers
 accelerate
+opencv-python
+pytesseract
 
 # --- Vector Database ---
 # Specific wheel for modern CUDA/Python support
