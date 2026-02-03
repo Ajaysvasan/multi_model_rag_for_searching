@@ -127,7 +127,6 @@ def run_baseline_ingestion() -> List[Chunk]:
 # Ann test
 def run_ann_sanity_tests(chunks: List[Chunk]) -> None:
     log("Running ANN sanity tests")
-    print("It is empty" if len(chunks) == 0 else "Not empty")
     # Reload index
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embedding_dim = model.get_sentence_embedding_dimension()
@@ -147,9 +146,6 @@ def run_ann_sanity_tests(chunks: List[Chunk]) -> None:
     )
 
     results = index.search(query_vector, k=Config.ANN_TOP_K)
-
-    print(results)
-    print(test_chunk.chunk_id)
 
     log("Self-retrieval test")
     if test_chunk.chunk_id[0] not in results:
