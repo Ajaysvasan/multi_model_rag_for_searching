@@ -57,55 +57,310 @@ marked.setOptions({ breaks: true, gfm: true });
 
 /**
  * Appends a message bubble to the chat container.
- * @param {boolean} isUser - Whether the message is from the user or bot.
- * @param {string} content - The text content (supports markdown for bot).
- * @param {string[]} sources - Array of source filenames used by the bot.
- * @param {boolean} shouldSave - Whether to persist this message to history.
+ *
+ * This is called whenever a new message (user or bot) needs to be displayed in the chat.
+ * For bot messages, it also handles displaying source documents as clickable chips.
+ *
+ * @param {boolean} isUser - Whether the message is from the user or bot
+ * @param {string} content - The text content (plain text for user, Markdown for bot)
+ * @param {Array<string|object>} sources - Array of source documents. Can be in two formats:
+ *
+ *   FORMAT 1 (Legacy - still supported):
+ *   ["file.pdf", "doc.txt"]
+ *
+ *   FORMAT 2 (New - enables file opening):
+ *   [
+ *     {name: "file.pdf", path: "/absolute/path/to/file.pdf"},
+ *     {name: "doc.txt", path: "C:\\docs\\doc.txt"}
+ *   ]
+ *
+ * @param {boolean} shouldSave - Whether to persist this message to history
+ *
+ * BACKEND INTEGRATION NOTE:
+ * When your RAG backend returns a response, include sources in Format 2 (with paths)
+ * to enable clickable source chips that open files.
  */
 function appendMessage(isUser, content, sources = [], shouldSave = true) {
+  // Create the main message container
   const messageDiv = document.createElement('div');
   messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
-  
+
+  // Create the content area
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
-  
+
   if (isUser) {
-    contentDiv.textContent = content; // Escape user input for security
+    // User messages: Use plain text for security (prevent XSS)
+    contentDiv.textContent = content;
   } else {
-    contentDiv.innerHTML = marked.parse(content); // Parse bot response as Markdown
+    // Bot messages: Parse Markdown for rich formatting
+    // Supports: **bold**, *italic*, `code`, ```blocks```, lists, links, etc.
+    contentDiv.innerHTML = marked.parse(content);
   }
-  
+
   messageDiv.appendChild(contentDiv);
 
-  // If the bot provides sources, render them as chips
+  // ======================================================================
+  // RENDER SOURCE CHIPS (only for bot messages with sources)
+  // ======================================================================
+  // This is where the source documents are displayed as clickable chips
   if (!isUser && sources && sources.length > 0) {
+    // Create sources container
     const sourcesDiv = document.createElement('div');
     sourcesDiv.className = 'sources';
     sourcesDiv.innerHTML = '<h4>Sources:</h4><div class="source-chips"></div>';
     const chipsContainer = sourcesDiv.querySelector('.source-chips');
+
+    // Create a chip for each source
+    // The createSourceChip() function handles:
+    // - Creating the visual chip element
+    // - Making it clickable if path is provided
+    // - Adding click handlers to open files
     sources.forEach(source => {
-      const chip = document.createElement('span');
-      chip.className = 'source-chip';
-      chip.textContent = source;
+      const chip = createSourceChip(source);  // ✨ Uses the new function
       chipsContainer.appendChild(chip);
     });
+
     messageDiv.appendChild(sourcesDiv);
   }
 
+  // Add message to chat and scroll to bottom
   chatContainer.appendChild(messageDiv);
   chatContainer.scrollTop = chatContainer.scrollHeight; // Auto-scroll to bottom
 
-  // Persist session to local storage (simulated in Main process)
+  // Save to chat history
   if (shouldSave) {
     currentSession.messages.push({ isUser, content, sources });
-    // Auto-generate title from the first user message
+
+    // Auto-generate chat title from first user message
     if (isUser && currentSession.messages.length === 1) {
       currentSession.title = content.substring(0, 30) + (content.length > 30 ? '...' : '');
     }
+
     saveCurrentSession();
   }
 
   return contentDiv;
+}
+
+// ============================================================================
+// ✨ NEW FUNCTION: CREATE CLICKABLE SOURCE CHIP
+// ============================================================================
+/**
+ * Creates a clickable source chip element for displaying RAG source documents.
+ *
+ * WHAT THIS FUNCTION DOES:
+ * ------------------------
+ * 1. Creates a small "pill" UI element showing the source document name
+ * 2. If a file path is provided, makes it clickable to open the file
+ * 3. Adds visual feedback (hover effects, tooltips)
+ * 4. Handles click events to open files in system default applications
+ *
+ * USER EXPERIENCE:
+ * ----------------
+ * - User sees: [📄 annual_report_2023.pdf] below the bot response
+ * - Hover: Chip turns green with slight lift effect
+ * - Click: File opens in Adobe Reader/Word/Excel/etc.
+ * - Tooltip: Shows full file path on hover
+ *
+ * BACKEND INTEGRATION GUIDE:
+ * ==========================
+ * This function accepts TWO FORMATS for the 'source' parameter:
+ *
+ * FORMAT 1: Legacy (filename only) - BACKWARDS COMPATIBLE
+ * --------------------------------------------------------
+ * source = "annual_report_2023.pdf"
+ *
+ * Result:
+ * - Displays filename in chip
+ * - NOT clickable (no hover effect)
+ * - Still works for displaying source names
+ *
+ * Example backend response:
+ * {
+ *   text: "Based on the documents...",
+ *   sources: ["annual_report.pdf", "project_specs.docx"]
+ * }
+ *
+ * FORMAT 2: With file path (object) - ✅ RECOMMENDED
+ * --------------------------------------------------
+ * source = {
+ *   name: "annual_report_2023.pdf",
+ *   path: "/absolute/path/to/documents/annual_report_2023.pdf"
+ * }
+ *
+ * Result:
+ * - Displays filename in chip
+ * - CLICKABLE with green hover effect
+ * - Opens file when clicked
+ * - Shows path in tooltip
+ *
+ * Example backend response:
+ * {
+ *   text: "Based on the documents...",
+ *   sources: [
+ *     {
+ *       name: "annual_report.pdf",
+ *       path: "C:\\Users\\your-username\\Documents\\annual_report.pdf"
+ *     },
+ *     {
+ *       name: "data.xlsx",
+ *       path: "/home/user/files/data.xlsx"
+ *     }
+ *   ]
+ * }
+ *
+ * CRITICAL REQUIREMENTS FOR BACKEND:
+ * ==================================
+ * 1. PATH MUST BE ABSOLUTE (not relative)
+ *    ✅ Good: "C:\\Users\\your-username\\docs\\file.pdf"
+ *    ✅ Good: "/home/user/documents/file.pdf"
+ *    ❌ Bad:  "./documents/file.pdf"
+ *    ❌ Bad:  "../file.pdf"
+ *
+ * 2. PATH SHOULD POINT TO ORIGINAL UPLOADED FILE
+ *    - Store the upload path in your vector DB metadata
+ *    - Return this path when chunks from that file are retrieved
+ *
+ * 3. CROSS-PLATFORM PATHS WORK
+ *    - Windows: "C:\\Users\\your-username\\file.pdf" (backslashes)
+ *    - macOS:   "/Users/your-username/file.pdf" (forward slashes)
+ *    - Linux:   "/home/your-username/file.pdf" (forward slashes)
+ *    - All formats work automatically!
+ *
+ * HOW BACKEND SHOULD IMPLEMENT:
+ * ==============================
+ * Step 1: Store paths during document upload
+ * -------------------------------------------
+ * When frontend uploads a file, it sends the absolute path.
+ * Store this in your vector DB chunk metadata:
+ *
+ * Python example:
+ * ```python
+ * for file_path in uploaded_files:
+ *     chunks = chunk_document(file_path)
+ *     for chunk in chunks:
+ *         vector_db.add(
+ *             text=chunk.text,
+ *             embedding=chunk.embedding,
+ *             metadata={
+ *                 "source_file": file_path,  # ← Store absolute path
+ *                 "file_name": os.path.basename(file_path),
+ *                 "page": chunk.page
+ *             }
+ *         )
+ * ```
+ *
+ * Step 2: Return paths during RAG query
+ * --------------------------------------
+ * When processing a user query:
+ *
+ * Python example:
+ * ```python
+ * # Retrieve relevant chunks
+ * results = vector_db.search(query_embedding, top_k=5)
+ *
+ * # Extract unique source files
+ * sources = []
+ * seen_paths = set()
+ * for chunk in results:
+ *     path = chunk.metadata["source_file"]
+ *     name = chunk.metadata["file_name"]
+ *     if path not in seen_paths:
+ *         sources.append({"name": name, "path": path})
+ *         seen_paths.add(path)
+ *
+ * # Return in correct format
+ * return {
+ *     "text": llm_generated_response,
+ *     "sources": sources  # ← Array of {name, path} objects
+ * }
+ * ```
+ *
+ * TESTING YOUR BACKEND INTEGRATION:
+ * ==================================
+ * 1. Upload a real file through the frontend
+ * 2. Note the file path that gets sent to your backend
+ * 3. Verify that path is stored in your vector DB metadata
+ * 4. Ask a question that should retrieve that file
+ * 5. Check response includes source with correct name and path
+ * 6. Click the source chip in the UI
+ * 7. File should open in your system's default application
+ *
+ * DEBUGGING TIPS:
+ * ===============
+ * - Open browser DevTools (F12) to see console logs
+ * - Check that sources array has {name, path} format
+ * - Verify paths are absolute (start with C:\ or /)
+ * - Ensure file exists at the specified path
+ * - Test with a simple text file first
+ *
+ * @param {string|object} source - Either a filename string or an object with {name, path}
+ * @returns {HTMLElement} A source chip element (clickable if path provided)
+ *
+ * @example
+ * // Legacy format (still works, but not clickable)
+ * createSourceChip("report.pdf");
+ *
+ * @example
+ * // New format (clickable)
+ * createSourceChip({
+ *   name: "report.pdf",
+ *   path: "C:\\Users\\your-username\\Documents\\report.pdf"
+ * });
+ */
+function createSourceChip(source) {
+  // STEP 1: Create the basic chip element
+  const chip = document.createElement('span');
+  chip.className = 'source-chip';
+
+  // STEP 2: Extract name and path (handle both string and object formats)
+  // This makes the function backwards compatible with old code that just passed strings
+  const sourceName = typeof source === 'string' ? source : source.name;
+  const sourcePath = typeof source === 'object' ? source.path : null;
+
+  // STEP 3: Set the display text (filename)
+  chip.textContent = sourceName;
+
+  // STEP 4: If we have a file path, make the chip clickable
+  if (sourcePath) {
+    // Add 'clickable' class for CSS styling (green hover effect, pointer cursor)
+    chip.classList.add('clickable');
+
+    // Set tooltip to show full file path
+    chip.title = `Click to open: ${sourcePath}`;
+
+    // STEP 5: Add click event listener to open the file
+    chip.addEventListener('click', async () => {
+      try {
+        // Call the Electron API to open the file
+        // This goes through: renderer.js → preload.js → index.js → shell.openPath()
+        const result = await window.electronAPI.openFile(sourcePath);
+
+        // STEP 6: Handle errors (file not found, permission denied, etc.)
+        if (!result.success) {
+          console.error('Failed to open file:', result.error);
+          // Show user-friendly error message
+          alert(`Could not open file: ${result.error}`);
+        }
+        // If successful, the file is now open in the default application!
+        // No need for additional feedback - the OS provides that
+
+      } catch (error) {
+        // Handle unexpected errors (network issues, IPC failure, etc.)
+        console.error('Error opening file:', error);
+        alert('An error occurred while trying to open the file.');
+      }
+    });
+
+  } else {
+    // STEP 7: No path provided - just show the filename (not clickable)
+    // This maintains backwards compatibility with old backend responses
+    chip.title = sourceName;
+    // Note: Without the 'clickable' class, the chip won't have hover effects
+  }
+
+  return chip;
 }
 
 /**
@@ -265,20 +520,47 @@ function startNewChat() {
   uploadedDocs = [];
   renderUploadedDocs();
   chatContainer.innerHTML = '';
-  mainContent.classList.add('new-chat-mode');
-  
+
+  // Clear any existing focus to prevent stuck cursor
+  if (document.activeElement && document.activeElement !== messageInput) {
+    document.activeElement.blur();
+  }
+
   // Ensure input is enabled and cleared when starting a new chat
   messageInput.disabled = false;
+  messageInput.readOnly = false;
   messageInput.value = '';
   messageInput.style.height = 'auto';
-  
+
   if (chatSearch) chatSearch.value = '';
-  
-  // Force focus after a short delay to ensure DOM state is settled
+
+  // Add the class after preparing the input
+  mainContent.classList.add('new-chat-mode');
+
+  // Wait for CSS transition to complete (300ms) plus buffer
+  // This is critical because #main-content has "transition: all 0.3s ease"
   setTimeout(() => {
-    messageInput.focus();
-  }, 0);
-  
+    // Force focus multiple times to ensure it sticks
+    const forceFocus = () => {
+      messageInput.disabled = false;
+      messageInput.readOnly = false;
+      messageInput.focus();
+
+      // Set cursor position
+      const length = messageInput.value.length;
+      messageInput.setSelectionRange(length, length);
+
+      // Trigger click to ensure cursor visibility
+      messageInput.click();
+    };
+
+    // Try focusing immediately
+    forceFocus();
+
+    // Try again after a small delay to be absolutely sure
+    setTimeout(forceFocus, 50);
+  }, 350); // Wait for 300ms transition + 50ms buffer
+
   refreshHistorySidebar();
 }
 
@@ -293,15 +575,36 @@ async function loadSession(sessionId) {
   currentSession = session;
   chatContainer.innerHTML = '';
   mainContent.classList.remove('new-chat-mode');
-  
+
   session.messages.forEach(msg => {
     appendMessage(msg.isUser, msg.content, msg.sources, false);
   });
-  
+
+  // Clear any existing focus to prevent stuck cursor
+  if (document.activeElement) {
+    document.activeElement.blur();
+  }
+
   // Ensure input is enabled when switching sessions
   messageInput.disabled = false;
-  messageInput.focus();
-  
+
+  // Focus with proper delay to ensure DOM is settled
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      // Restore input state
+      messageInput.disabled = false;
+      messageInput.readOnly = false;
+
+      // Focus and ensure cursor appears
+      messageInput.focus();
+      messageInput.click();
+
+      // Explicitly set cursor position at the end
+      const length = messageInput.value.length;
+      messageInput.setSelectionRange(length, length);
+    }, 100);
+  });
+
   await refreshHistorySidebar();
 }
 
@@ -402,6 +705,23 @@ async function toggleRecording() {
 
 /**
  * Core function for handling user input and triggering the RAG response flow.
+ *
+ * FLOW OVERVIEW:
+ * 1. User types message and clicks send
+ * 2. Display user message in chat
+ * 3. Send query to backend (via ragService.js)
+ * 4. Backend processes query through RAG pipeline
+ * 5. Backend returns {text, sources} response
+ * 6. Display bot response with streaming effect
+ * 7. Display source chips below response ✨
+ * 8. User can click chips to open files
+ *
+ * BACKEND INTEGRATION:
+ * This function expects the backend to return:
+ * {
+ *   text: string,         // LLM response (Markdown formatted)
+ *   sources: Array        // Source documents
+ * }
  */
 async function handleSendMessage() {
   const message = messageInput.value.trim();
@@ -410,7 +730,7 @@ async function handleSendMessage() {
   // Don't send if both message, audio and staging area are empty
   if (!message && !audioQuery && uploadedDocs.length === 0) return;
 
-  // 1. Render user message bubble
+  // STEP 1: Render user message bubble
   if (mainContent.classList.contains('new-chat-mode')) {
     mainContent.classList.remove('new-chat-mode');
   }
@@ -420,56 +740,82 @@ async function handleSendMessage() {
   } else {
     appendMessage(true, message);
   }
-  
+
   messageInput.value = '';
   messageInput.style.height = 'auto';
-  
-  // Disable input while waiting for bot
+
+  // STEP 2: Disable input while waiting for bot response
   messageInput.disabled = true;
   sendButton.disabled = true;
   micBtn.disabled = true;
 
   try {
     let response;
-    
+
+    // STEP 3: Send query to backend
     if (audioQuery) {
       // 3a. Send speech query if audio is present
-      // DEVELOPMENT TIP: We convert the browser's Blob to an ArrayBuffer 
+      // DEVELOPMENT TIP: We convert the browser's Blob to an ArrayBuffer
       // because Electron's IPC works best with TypedArrays (like Uint8Array).
       // On the backend, this arrives as a Node.js Buffer.
       const arrayBuffer = await audioQuery.file.arrayBuffer();
       response = await window.electronAPI.sendSpeechQuery(new Uint8Array(arrayBuffer), audioQuery.name);
     } else {
       // 3b. Request normal text response
+      // This calls: preload.js → index.js → ragService.js → YOUR BACKEND
       response = await window.electronAPI.sendMessage(message);
     }
-    
-    // 2. Clear the staged uploads UI
+
+    // STEP 4: Clear the staged uploads UI
     uploadedDocs = [];
     renderUploadedDocs();
-    
-    // 4. Create bot bubble and begin streaming response
+
+    // STEP 5: Create bot message bubble
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message bot-message';
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     messageDiv.appendChild(contentDiv);
     chatContainer.appendChild(messageDiv);
-    
+
+    // STEP 6: Stream the response text with typing effect
     await simulateStreaming(contentDiv, response.text);
-    
-    // 5. Append sources if provided by the backend
+
+    // ======================================================================
+    // STEP 7: RENDER SOURCE CHIPS ✨
+    // ======================================================================
+    // This is where source documents are displayed as clickable chips
+    //
+    // BACKEND INTEGRATION NOTE:
+    // The 'response.sources' should be an array of objects like:
+    // [
+    //   {name: "report.pdf", path: "C:\\Users\\your-username\\Documents\\report.pdf"},
+    //   {name: "data.xlsx", path: "/home/user/files/data.xlsx"}
+    // ]
+    //
+    // Each source chip will be:
+    // - Displayed below the bot response
+    // - Clickable to open the file
+    // - Show green hover effect
+    // - Display tooltip with full path
     if (response.sources && response.sources.length > 0) {
+      // Create sources container
       const sourcesDiv = document.createElement('div');
       sourcesDiv.className = 'sources';
       sourcesDiv.innerHTML = '<h4>Sources:</h4><div class="source-chips"></div>';
       const chipsContainer = sourcesDiv.querySelector('.source-chips');
+
+      // Create a chip for each source
+      // The createSourceChip() function handles:
+      // - Creating the chip element
+      // - Making it clickable if path is provided
+      // - Adding click handler to open file
+      // - Adding hover effects
       response.sources.forEach(source => {
-        const chip = document.createElement('span');
-        chip.className = 'source-chip';
-        chip.textContent = source;
+        const chip = createSourceChip(source);  // ✨ Creates clickable chip
         chipsContainer.appendChild(chip);
       });
+
       messageDiv.appendChild(sourcesDiv);
     }
 

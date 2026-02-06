@@ -656,12 +656,92 @@ body.custom-theme .input-footer {
   flex-wrap: wrap;
 }
 
+/* ==========================================================================
+   SOURCE CHIPS STYLING - ✨ Clickable File Opening Feature
+   ========================================================================== */
+
+/**
+ * Base styling for all source chips (both clickable and non-clickable)
+ *
+ * Source chips are small "pill" elements that display document names below
+ * bot responses in the chat interface.
+ *
+ * BACKEND INTEGRATION NOTE:
+ * - If backend returns just filenames: chip is non-clickable (gray)
+ * - If backend returns {name, path}: chip is clickable (see .clickable class)
+ */
 .source-chip {
   padding: 2px 8px;
-  background: var(--source-chip-bg);
-  border-radius: 4px;
+  background: var(--source-chip-bg);      /* Gray background by default */
+  border-radius: 4px;                     /* Rounded corners */
   color: var(--source-chip-text);
+  transition: all 0.2s ease;              /* Smooth hover animations */
 }
+
+/**
+ * Clickable source chip styling
+ *
+ * This class is added when the backend provides a file path in the source object.
+ * Format: {name: "file.pdf", path: "C:\\path\\to\\file.pdf"}
+ *
+ * USER EXPERIENCE:
+ * - Cursor changes to pointer (indicates clickability)
+ * - Text cannot be selected (cleaner interaction)
+ * - See :hover and :active states below for visual feedback
+ */
+.source-chip.clickable {
+  cursor: pointer;                        /* Show pointer cursor on hover */
+  user-select: none;                      /* Prevent text selection */
+}
+
+/**
+ * Hover state for clickable chips
+ *
+ * VISUAL FEEDBACK:
+ * - Background changes to accent color (green by default)
+ * - Text turns white for contrast
+ * - Chip lifts up slightly (translateY)
+ * - Shadow appears to create depth
+ *
+ * This gives users clear feedback that the chip is interactive.
+ */
+.source-chip.clickable:hover {
+  background: var(--accent-color);        /* Green background */
+  color: white;                           /* White text */
+  transform: translateY(-1px);            /* Lift up 1px */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);  /* Add shadow for depth */
+}
+
+/**
+ * Active/click state for clickable chips
+ *
+ * VISUAL FEEDBACK:
+ * - Chip moves back to original position (no lift)
+ * - Shadow reduces to indicate "pressed" state
+ * - Provides tactile feedback when user clicks
+ *
+ * This brief animation happens when:
+ * 1. User clicks the chip
+ * 2. File opening request is sent to Electron
+ * 3. File opens in system default application
+ */
+.source-chip.clickable:active {
+  transform: translateY(0);               /* Return to normal position */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);  /* Smaller shadow */
+}
+
+/* ==========================================================================
+   END OF CLICKABLE SOURCE CHIPS FEATURE
+   ==========================================================================
+
+   BACKEND DEVELOPER CHECKLIST:
+   ✓ Return sources as: [{name: "file.pdf", path: "C:\\path\\to\\file.pdf"}]
+   ✓ Use ABSOLUTE paths, not relative
+   ✓ Store file paths in vector DB metadata during upload
+   ✓ Retrieve file paths from metadata during query
+
+   See BACKEND_INTEGRATION_GUIDE.md for complete documentation
+   ========================================================================== */
 
 /* Input Area */
 .welcome-message {
