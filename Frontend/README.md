@@ -53,47 +53,50 @@ This file simulates the RAG pipeline. To integrate a real backend, replace these
 
 ---
 
-## 🚀 Integration Guide for Backend/Vector DB Developers
+## 🚀 Backend Integration
 
-### 1. Document Indexing Flow
-1. User selects files via the "Upload" button.
-2. `index.js` captures absolute paths.
-3. `ragService.uploadDocuments` receives these paths.
-4. **Action**: Implement an endpoint that takes these paths (or file streams), generates embeddings, and inserts them into your Vector DB (e.g., Pinecone, Chroma, Milvus).
+**For complete integration instructions**, see the main documentation:
+- **Quick Start**: `../BACKEND_DEVELOPER_START_HERE.md` (5 minutes)
+- **Full Guide**: `../BACKEND_INTEGRATION_GUIDE.md`
+- **Format Reference**: `../backend/FRONTEND_RESPONSE_FORMAT.md`
 
-### 2. Speech/Audio Query Flow
-1. User clicks the Mic icon and records their query.
-2. `renderer.js` captures the audio and converts it to a `Uint8Array` (MP3 Buffer).
-3. `index.js` passes the buffer to `ragService.processSpeechQuery`.
-4. **Action**: Implement an **STT-to-RAG** flow:
-    - Transcribe the MP3 buffer using a model like **Whisper**.
-    - Use the resulting text to perform a similarity search in your Vector DB.
-    - Generate an LLM response based on the retrieved context.
+### What Frontend Provides
 
-### 3. Chat/Retrieval Flow
-1. User sends a message.
-2. `renderer.js` calls `ragService.getResponse`.
-3. **Action**: Implement a RAG endpoint that returns text and source metadata.
+The frontend sends these requests to your backend:
 
-### 4. Expected Data Formats
-- **Speech Query Request**:
-  - `audioBuffer`: Node.js `Buffer` (MP3 encoded).
-  - `fileName`: String (e.g., `speech_query_1706123456.mp3`).
-- **Message Response**:
-  ```json
-  {
-    "text": "The response string (Markdown supported)",
-    "sources": ["file1.pdf", "file2.docx"]
-  }
-  ```
-- **Upload Response**:
-  ```json
-  {
-    "success": true,
-    "message": "Files indexed successfully",
-    "uploadedFiles": [{ "name": "file.pdf", "type": "document" }]
-  }
-  ```
+1. **Document Upload**
+   - **Request**: `POST /api/upload`
+   - **Body**: `{filePaths: string[], type: string}`
+   - **FilePaths**: Absolute paths to documents on user's system
+   - **Your Backend**: Store paths in vector DB metadata
+
+2. **Text Query**
+   - **Request**: `POST /api/query`
+   - **Body**: `{query: string}`
+   - **Your Backend**: Return LLM response + source file paths
+
+3. **Speech Query** (optional)
+   - **Request**: `POST /api/speech-query`
+   - **Body**: FormData with MP3 audio buffer
+   - **Your Backend**: Transcribe audio, then process as text query
+
+### Required Response Format
+
+**CRITICAL**: Backend must return sources as objects with `name` and `path`:
+
+```json
+{
+  "text": "Your LLM response (Markdown supported)",
+  "sources": [
+    {
+      "name": "document.pdf",
+      "path": "C:\\Users\\your-username\\Documents\\document.pdf"
+    }
+  ]
+}
+```
+
+**Why absolute paths?** The frontend opens source files directly on user's system when they click source chips.
 
 ---
 

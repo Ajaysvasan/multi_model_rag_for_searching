@@ -162,99 +162,55 @@ multi_model_rag_for_searching/
 ## 🔑 Critical Integration Points
 
 ### Point 1: Document Upload (Store Path)
-**File**: `Frontend/src/index.js` → `performUpload()`
-**Action**: Backend receives absolute file paths
-**Backend Must Do**: Store `filePath` in vector DB metadata
+**When**: User uploads a document through frontend
+**Frontend Sends**: `POST /api/upload` with `{filePaths: [...], type: "document"}`
+**Backend Must**: Store the absolute file path in vector DB chunk metadata as `source_file`
 
-```python
-# When processing upload
-for file_path in uploaded_files:
-    chunks = process_document(file_path)
-    for chunk in chunks:
-        vector_db.add(
-            text=chunk.text,
-            embedding=chunk.embedding,
-            metadata={
-                "source_file": file_path,  # ← CRITICAL: Store this!
-                "file_name": os.path.basename(file_path)
-            }
-        )
-```
+See `BACKEND_INTEGRATION_GUIDE.md` for complete code examples.
 
 ### Point 2: Query Processing (Return Path)
-**File**: `Frontend/src/services/ragService.js` → `getResponse()`
-**Action**: Frontend expects response with sources
-**Backend Must Return**:
-
-```python
-# After RAG retrieval
-retrieved_chunks = vector_db.search(query)
-
-# Extract unique file paths
-sources = []
-seen = set()
-for chunk in retrieved_chunks:
-    path = chunk.metadata["source_file"]
-    name = chunk.metadata["file_name"]
-    if path not in seen:
-        sources.append({"name": name, "path": path})
-        seen.add(path)
-
-return {
-    "text": llm_generated_response,
-    "sources": sources  # ← CRITICAL: Format like this!
+**When**: User sends a query
+**Frontend Sends**: `POST /api/query` with `{query: "user question"}`
+**Backend Must**: Return response in format:
+```json
+{
+  "text": "LLM response",
+  "sources": [{"name": "file.pdf", "path": "C:\\full\\path\\file.pdf"}]
 }
 ```
 
+See `backend/FRONTEND_RESPONSE_FORMAT.md` for complete specification.
+
 ### Point 3: User Interaction (Click to Open)
-**File**: `Frontend/src/renderer.js` → `createSourceChip()`
-**Action**: User clicks source chip
-**Flow**:
-1. Click event → `window.electronAPI.openFile(path)`
-2. Preload → `ipcRenderer.invoke('file:open', path)`
-3. Main → `shell.openPath(path)`
-4. System opens file
+**When**: User clicks a source chip in the UI
+**Frontend Does**: Opens the file at the provided path using system default application
+**Backend Requirement**: Paths must be absolute and point to existing files
 
 ---
 
-## 🧪 Testing Checklist
+## 🧪 Integration Testing
 
-### Backend Developer Testing:
+### Backend Testing:
 
-1. **Test Response Format**
-   ```python
-   # Your endpoint should return this structure
-   response = your_rag_query("test query")
-   assert "text" in response
-   assert "sources" in response
-   assert isinstance(response["sources"], list)
-   assert all("name" in s and "path" in s for s in response["sources"])
-   ```
+After integrating your backend, verify:
 
-2. **Test Path Storage**
-   ```python
-   # After uploading a file, check vector DB
-   chunks = vector_db.get_all()
-   assert chunks[0].metadata.get("source_file")  # Should exist
-   assert os.path.isabs(chunks[0].metadata["source_file"])  # Should be absolute
-   ```
+1. **Upload endpoint stores paths correctly**
+   - Upload a file through the frontend UI
+   - Check your vector DB metadata contains `source_file` with absolute path
 
-3. **Test Path Retrieval**
-   ```python
-   # After query, check sources contain valid paths
-   response = your_rag_query("test query")
-   for source in response["sources"]:
-       assert os.path.exists(source["path"])  # File should exist
-   ```
+2. **Query endpoint returns correct format**
+   - Send a test query through the frontend
+   - Open browser DevTools (F12), check response has `{text, sources}`
+   - Verify each source has `name` and `path` properties
 
-### Frontend Testing:
+3. **File opening works**
+   - Click a source chip in the UI
+   - File should open in system default application
+   - If it fails, path is incorrect or file doesn't exist
 
-1. Open Developer Tools (F12) in Electron
-2. Upload a document
-3. Send a query
-4. Check console for response format
-5. Click source chip
-6. Verify file opens
+### Full Testing Instructions:
+
+See `BACKEND_INTEGRATION_GUIDE.md` section "Testing Integration" for complete step-by-step instructions.
 
 ---
 
