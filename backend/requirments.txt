@@ -1,12 +1,26 @@
-# Required packages for text extraction
+# --- Core AI Engines ---
+torch
+transformers
+sentence-transformers
+accelerate
+opencv-python
+pytesseract
 
-# For .docx files
-python-docx>=0.8.11
+# ---For Audio---
+openai-whisper
+pydub
 
-# For .pdf files
-PyPDF2>=3.0.0
 
-# For legacy .doc files (optional - requires system dependencies)
-# textract>=1.6.5
-# Note: textract requires additional system packages like antiword, unrtf, etc.
-# Consider using python-docx2txt or mammoth as alternatives for .doc files
+# --- Vector Database ---
+# Specific wheel for modern CUDA/Python support
+faiss-gpu-cu12
+
+# --- Document Handling ---
+python-docx
+PyPDF2
+pillow
+
+# --- Utilities ---
+numpy<2.0
+tqdm
+pyyaml

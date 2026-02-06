@@ -4,7 +4,7 @@ from typing import Dict, List
 
 
 class FileLoader:
-    def __init__(self, folder_path: str = "") -> None:
+    def __init__(self, folder_path: Path) -> None:
         self.folder_path = folder_path
         self.allowed_extensions = {".doc", ".docx", ".txt", ".pdf"}
 
@@ -25,7 +25,7 @@ class FileLoader:
         return None
 
     def _scan_directory(
-        self, directory: str, loaded_files: Dict[str, List[str]]
+        self, directory: Path, loaded_files: Dict[str, List[Path]]
     ) -> None:
         """Recursively scan directory and categorize files"""
         try:
@@ -47,7 +47,7 @@ class FileLoader:
         except Exception as e:
             print(f"Error scanning {directory}: {e}")
 
-    def load_files(self) -> Dict[str, List[str]]:
+    def load_files(self) -> Dict[str, List[Path]]:
         """
         The output will be in the following format:
         {
@@ -78,6 +78,6 @@ class FileLoader:
 
 if __name__ == "__main__":
 
-    data_path = str(Path.cwd() / "data" / "datasets")
+    data_path = Path.cwd() / "data" / "datasets"
     file_loader = FileLoader(data_path)
     print(file_loader.load_files())

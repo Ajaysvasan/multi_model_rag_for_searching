@@ -49,9 +49,8 @@ class ImagePreprocessor:
             brightness_enhancer = ImageEnhance.Brightness(img)
             img = brightness_enhancer.enhance(3.0) # It enhance all the 3 colors Red, Green, Blue
 
-            # As we are using contrast below we can enhance the color above.
-            print("Colour enhanced")
 
+            # Just increasing brightness and sharpness is enough and if you want you can do contrast and saturation
 
             # contrast_enhancer = ImageEnhance.Contrast(img)
             # img = contrast_enhancer.enhance(1.5) 
@@ -92,14 +91,3 @@ class ImagePreprocessor:
             return False, "Corrupted or unreadable image"
 
         return True, None
-
-
-if __name__ == "__main__":
-    file_directory = input("Enter a valid images file directory : ")
-    images = ImagePreprocessor()
-
-    # Get the directory where images of users are stored and make it process.
-
-    preprocessed_images = images.process_directory(file_directory)
-
-    print(preprocessed_images)
