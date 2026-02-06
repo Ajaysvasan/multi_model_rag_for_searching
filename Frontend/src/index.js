@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const url = require('node:url');
@@ -216,6 +216,43 @@ app.whenReady().then(() => {
     return await performUpload(type);
   });
 
+  // Handler for webcam photo upload
+  ipcMain.handle('documents:upload-webcam', async (event, imageBuffer, fileName) => {
+    try {
+      // Save the image buffer to a temporary file
+      const tempDir = path.join(app.getPath('temp'), 'ragpt-webcam');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      const tempPath = path.join(tempDir, fileName);
+      fs.writeFileSync(tempPath, Buffer.from(imageBuffer));
+
+      // Process the file like a regular image upload
+      const result = await ragService.uploadDocuments([tempPath], 'image');
+
+      if (result.success) {
+        const doc = {
+          name: fileName,
+          path: tempPath,
+          type: 'image',
+          date: new Date().toLocaleString()
+        };
+        documentStorage.push(doc);
+
+        // Notify UI
+        if (mainWindow) {
+          mainWindow.webContents.send('documents:refreshed');
+        }
+
+        return { success: true, uploadedFiles: [{ name: doc.name, type: doc.type }] };
+      }
+      return result;
+    } catch (error) {
+      console.error('Webcam upload error:', error);
+      return { success: false, message: 'Failed to upload webcam photo' };
+    }
+  });
+
   ipcMain.handle('documents:get-all', async () => {
     return documentStorage;
   });
@@ -269,6 +306,131 @@ app.whenReady().then(() => {
 
   ipcMain.handle('theme:get-default-path', () => {
     return path.join(__dirname, 'optic.jpg');
+  });
+
+  // ========================================================================
+  // ✨ NEW FEATURE: FILE OPENING HANDLER
+  // ========================================================================
+  /**
+   * Handler for opening files in the system's default application.
+   * This is triggered when users click on source chips in the chat.
+   *
+   * FLOW:
+   * 1. User asks: "What was the revenue in 2023?"
+   * 2. Backend returns response with sources including file paths
+   * 3. Frontend displays clickable source chips (see renderer.js)
+   * 4. User clicks chip → renderer.js calls window.electronAPI.openFile(path)
+   * 5. Preload bridge forwards to this handler
+   * 6. This handler opens the file using Electron's shell.openPath()
+   * 7. File opens in system default app (Adobe Reader, Word, etc.)
+   *
+   * CRITICAL FOR BACKEND DEVELOPERS:
+   * ================================
+   * When your RAG retrieval returns source documents, you MUST provide the
+   * FULL ABSOLUTE PATH to each file, not just the filename.
+   *
+   * WHY ABSOLUTE PATHS?
+   * - Relative paths won't work across different working directories
+   * - The frontend needs to know the exact location on the filesystem
+   * - You should store the original upload path in your vector DB metadata
+   *
+   * HOW TO STORE PATHS IN YOUR BACKEND:
+   * ------------------------------------
+   * When users upload documents through the frontend:
+   *
+   * 1. The frontend sends absolute file paths to ragService.uploadDocuments()
+   * 2. Your backend should store this path in vector DB chunk metadata:
+   *
+   *    Python example:
+   *    for file_path in uploaded_files:  # These are already absolute paths
+   *        chunks = process_document(file_path)
+   *        for chunk in chunks:
+   *            vector_db.add(
+   *                text=chunk.text,
+   *                embedding=chunk.embedding,
+   *                metadata={
+   *                    "source_file": file_path,  # ← Store the absolute path here!
+   *                    "file_name": os.path.basename(file_path),
+   *                    "page": chunk.page
+   *                }
+   *            )
+   *
+   * 3. During RAG query, retrieve the path from metadata:
+   *
+   *    Python example:
+   *    retrieved_chunks = vector_db.search(query_embedding, top_k=5)
+   *    sources = []
+   *    seen = set()
+   *    for chunk in retrieved_chunks:
+   *        path = chunk.metadata["source_file"]  # ← Get the stored path
+   *        name = chunk.metadata["file_name"]
+   *        if path not in seen:
+   *            sources.append({"name": name, "path": path})
+   *            seen.add(path)
+   *
+   * EXPECTED RESPONSE FORMAT FROM BACKEND:
+   * ---------------------------------------
+   * {
+   *   text: "Here is your answer based on the documents...",
+   *   sources: [
+   *     {
+   *       name: "annual_report_2023.pdf",        // Display name (shown in UI)
+   *       path: "/absolute/path/to/annual_report_2023.pdf"  // Full path (for opening)
+   *     },
+   *     {
+   *       name: "project_specs_v2.docx",
+   *       path: "C:\\Users\\your-username\\Documents\\project_specs_v2.docx"  // Windows example
+   *     }
+   *   ]
+   * }
+   *
+   * PLATFORM-SPECIFIC PATH FORMATS:
+   * --------------------------------
+   * Windows:  "C:\\Users\\your-username\\Documents\\file.pdf"
+   * macOS:    "/Users/your-username/Documents/file.pdf"
+   * Linux:    "/home/your-username/documents/file.pdf"
+   *
+   * All formats work with shell.openPath() - it's cross-platform!
+   *
+   * @param {Object} event - IPC event (automatically provided)
+   * @param {string} filePath - Absolute path to the file to open
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  ipcMain.handle('file:open', async (event, filePath) => {
+    try {
+      // STEP 1: Validate that the file exists before attempting to open
+      // This prevents showing OS errors to the user for missing files
+      if (!fs.existsSync(filePath)) {
+        console.error(`[FILE:OPEN] File not found: ${filePath}`);
+        return { success: false, error: 'File not found' };
+      }
+
+      // STEP 2: Open the file in the system's default application
+      // shell.openPath() is a cross-platform Electron API that:
+      // - Opens PDFs in Adobe Reader / Preview / Evince
+      // - Opens DOCX in Microsoft Word / LibreOffice
+      // - Opens images in default image viewer
+      // - Opens videos in default video player
+      // - Works on Windows, macOS, and Linux
+      const result = await shell.openPath(filePath);
+
+      // STEP 3: Check if opening was successful
+      // Note: shell.openPath() returns:
+      // - Empty string "" if successful
+      // - Error message string if failed
+      if (result) {
+        console.error(`[FILE:OPEN] Failed to open file: ${result}`);
+        return { success: false, error: result };
+      }
+
+      console.log(`[FILE:OPEN] Successfully opened file: ${filePath}`);
+      return { success: true };
+
+    } catch (error) {
+      // STEP 4: Handle any unexpected errors
+      console.error('[FILE:OPEN] Unexpected error:', error);
+      return { success: false, error: error.message };
+    }
   });
 
   createWindow();
