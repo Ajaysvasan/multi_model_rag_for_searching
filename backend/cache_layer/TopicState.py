@@ -12,9 +12,9 @@ class TopicKey:
 @dataclass
 class TopicState:
     key: TopicKey
-    score: int
-    cached_chunk_ids: List[int]
+    cached_chunk_ids: List[str]
     access_count: int
     last_access_ts: float
     first_seen_ts: float
-    confidence: float  # optional heuristicy
+    score: float
+    confidence: float  # optional heuristic

@@ -19,7 +19,6 @@ class Config:
     L2_CAPACITY = 128
     L3_CAPACITY = 1024
     RECENCY_BOOST = 0.2
-    L1_THRESHOLD = 20
     L2_THRESHOLD = 8
     L3_THRESHOLD = 3
 
