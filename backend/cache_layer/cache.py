@@ -10,9 +10,9 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from TopicState import TopicKey, TopicState
-
 from config import Config
+
+from .TopicState import TopicKey, TopicState
 
 
 @dataclass
