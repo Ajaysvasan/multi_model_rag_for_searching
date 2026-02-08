@@ -130,12 +130,9 @@ def run_baseline_ingestion() -> List[Chunk]:
     rows = []
     for c in all_chunks:
         source_path = chunk_to_source_path[c.chunk_id]
-        # debugging :
-        # print(type(c.chunk_id))
-        # print(type(c.chunk_id[0]))
         rows.append(
             {
-                "chunk_id": c.chunk_id[0],
+                "chunk_id": c.chunk_id,
                 "document_id": c.document_id,
                 "source_path": str(source_path.resolve()),
                 "modality": "text",  # for now: only text
@@ -182,7 +179,7 @@ def run_ann_sanity_tests_and_demo(chunks: List[Chunk]) -> None:
     results = index.search(query_vector, k=Config.ANN_TOP_K)
 
     log("Self-retrieval test")
-    if test_chunk.chunk_id[0] not in results:
+    if test_chunk.chunk_id not in results:
         raise AssertionError("Self-retrieval test FAILED")
     log("Self-retrieval test PASSED")
 

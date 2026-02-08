@@ -160,7 +160,7 @@ class TextChunker:
 
         text = "\n\n".join(p[0] for p in paras)
 
-        chunk_id = generate_chunk_id(
+        chunk_id_tuple = generate_chunk_id(
             document_id=document_id,
             start_char=start_char,
             end_char=end_char,
@@ -169,6 +169,9 @@ class TextChunker:
             normalization_version=normalization_version,
             chunk_version=self.chunk_version,
         )
+        
+        # Extract just the hash ID (first element of tuple)
+        chunk_id = chunk_id_tuple[0] if isinstance(chunk_id_tuple, tuple) else chunk_id_tuple
 
         return Chunk(
             chunk_id=chunk_id,

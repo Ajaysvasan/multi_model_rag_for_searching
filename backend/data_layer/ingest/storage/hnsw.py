@@ -106,13 +106,13 @@ class HNSWIndex:
         print(f"Saving index to: {path_str}")
         with open(path_str + ".ids", "w") as f:
             for eid in self.id_map:
-                f.write(eid[0] + "\n")
+                f.write(eid + "\n")
 
     def load(self) -> None:
         if not os.path.exists(self.index_path):
             return
 
-        self.index = faiss.read_index(self.index_path)
+        self.index = faiss.read_index(str(self.index_path))
         ids_path = str(self.index_path) + ".ids"
         if not os.path.exists(ids_path):
             raise FileNotFoundError(
