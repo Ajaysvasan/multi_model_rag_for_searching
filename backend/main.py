@@ -6,11 +6,6 @@ from config import Config
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
-
-import json
-from pathlib import Path
-from typing import Dict, List
-
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -73,7 +68,7 @@ def run_ingestion(model, dim):
     chunker = TextChunker(
         target_tokens=CHUNK_SIZE,
         max_tokens=int(CHUNK_SIZE * 1.25),  # Allow 25% growth max
-        overlap_tokens=CHUNK_OVERLAP
+        overlap_tokens=CHUNK_OVERLAP,
     )
 
     print("Chunking + embedding...")
@@ -172,7 +167,7 @@ def run_retrieval(model, dim):
     history = ConversationHistory(
         session_id="default",
         db_path=str(Config.CACHE_HISTORY_DB_PATH),
-        sim_threshold=0.90  # Increased from 0.80 for more precise matching
+        sim_threshold=0.90,  # Increased from 0.80 for more precise matching
     )
 
     # Create retrieval engine
