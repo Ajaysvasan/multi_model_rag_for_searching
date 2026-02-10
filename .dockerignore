@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+env/
+.venv
+
+# Data (mount as volumes)
+backend/data/
+backend/models/
+backend/logs/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test/Build
+test/
+tests/
+build/
+dist/
+*.egg-info/
+
+# Env
+.env
+.env.local
+
+# Temp
+*.tmp
+*.log
+tmp/

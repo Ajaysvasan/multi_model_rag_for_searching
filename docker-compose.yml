@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  rag-system:
+    build: .
+    container_name: multi-model-rag
+    
+    # GPU support (uncomment for NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    volumes:
+      - ./backend/models:/app/backend/models
+      - ./backend/data:/app/backend/data
+      - ./backend/logs:/app/backend/logs
+    
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - PYTHONUNBUFFERED=1
+    
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
