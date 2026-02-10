@@ -28,23 +28,19 @@ class Config:
 
     CACHE_HISTORY_DB_PATH = Path("data/index/cache_history.db")
 
-    # History Configuration
-    HISTORY_MAX_AGE = 3600   # Seconds before a history entry expires (1 hour)
-    HISTORY_MAX_SIZE = 32    # Max entries kept per session
+    HISTORY_MAX_AGE = 3600
+    HISTORY_MAX_SIZE = 32
 
-    # Reranking Configuration
     RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    RERANK_TOP_K = 5  # Number of results after reranking
-    
-    # Validation Configuration
-    MIN_RELEVANCE_SCORE = 0.15  # Lowered for short/single-word queries
-    MAX_RETRIES = 2  # Max re-retrieval attempts on validation failure
-    
-    # Generation Configuration - Local GGUF Model (~4.4GB)
+    RERANK_TOP_K = 5
+
+    MIN_RELEVANCE_SCORE = 0.15
+    MAX_RETRIES = 2
+
     GENERATION_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
     GENERATION_MODEL_FILE = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # ~4.4GB
     MODELS_DIR = Path("models")
-    USE_LOCAL_MODEL = True  # Set False to use HuggingFace API instead
+    USE_LOCAL_MODEL = True
 
 
 if __name__ == "__main__":

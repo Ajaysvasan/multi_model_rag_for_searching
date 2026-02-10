@@ -7,16 +7,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-import json
-from pathlib import Path
-from typing import Dict, List
-
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from data_layer.chunkstore.Chunkstore import (
-    ChunkMetadataStore,
-)  # your SQLite-backed store
+from data_layer.chunkstore.Chunkstore import ChunkMetadataStore
 from data_layer.ingest.chunker import TextChunker
 from data_layer.ingest.normalizer import NormalizationProfiles
 from data_layer.ingest.storage.embedding import EmbeddingRecord
@@ -37,33 +31,27 @@ CHUNK_OVERLAP = Config.CHUNK_OVERLAP
 def main():
     os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
 
-    # Load embedding model
     model = SentenceTransformer(EMBED_MODEL_NAME)
     dim = model.get_sentence_embedding_dimension()
 
-    # Init FAISS HNSW
     index = HNSWIndex(
         dim=dim,
         index_path=INDEX_PATH,
     )
 
-    # Load files
     file_loader = FileLoader(DATASET_PATH)
     loaded_files = file_loader.load_files()
 
     extractor = TextExtractor()
     extracted_texts = extractor.extract_all(loaded_files)
 
-    # Normalize
     normalizer = NormalizationProfiles.rag_ingestion()
     normalized_texts = normalizer.normalize_all(extracted_texts)
 
-    # Chunk
     chunker = TextChunker(target_tokens=CHUNK_SIZE, overlap_tokens=CHUNK_OVERLAP)
 
     print("Chunking + embedding...")
 
-    # Initialize metadata store (SQLite)
     metadata_store = ChunkMetadataStore(db_path="data/index/chunks.db")
 
     embedding_records = []
@@ -77,10 +65,8 @@ def main():
         )
 
         for ch in chunks:
-            # Embed
             vec = model.encode(ch.text, normalize_embeddings=True)
 
-            # Prepare embedding record for FAISS
             embedding_records.append(
                 EmbeddingRecord(
                     embedding_id=ch.chunk_id,
@@ -92,7 +78,6 @@ def main():
                 )
             )
 
-            # Prepare metadata row for SQLite
             metadata_rows.append(
                 {
                     "chunk_id": ch.chunk_id,
@@ -107,15 +92,12 @@ def main():
                 }
             )
 
-    # Add embeddings to FAISS
     print(f"Adding {len(embedding_records)} vectors to FAISS...")
     index.add(embedding_records)
 
-    # Save FAISS index
     index.save()
     print(f"FAISS index saved to: {INDEX_PATH}")
 
-    # Insert metadata into SQLite (idempotent)
     print(f"Inserting {len(metadata_rows)} metadata rows into SQLite...")
     metadata_store.insert_many(metadata_rows)
 
