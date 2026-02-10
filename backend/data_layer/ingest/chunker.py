@@ -52,26 +52,45 @@ class TextChunker:
             para_text, start, end = paragraphs[i]
             tokens = estimate_tokens(para_text)
 
-            # If a single paragraph is too large, force split
+            # If a single paragraph is too large, force split by sentences
             if tokens > self.max_tokens:
-                # split paragraph by sentences
-                sentences = re.split(r"(?<=[.!?])\s+", para_text)
+                # Split paragraph into sentences with proper offset tracking
+                sentence_pattern = re.compile(r'(?<=[.!?])\s+')
+                sentences = sentence_pattern.split(para_text)
+                
+                # Track position within the paragraph
+                sent_cursor = 0
                 for sent in sentences:
+                    if not sent.strip():
+                        sent_cursor += len(sent)
+                        continue
+                    
+                    # Find the actual position of this sentence in para_text
+                    sent_start_in_para = para_text.find(sent, sent_cursor)
+                    if sent_start_in_para == -1:
+                        sent_start_in_para = sent_cursor
+                    
+                    sent_end_in_para = sent_start_in_para + len(sent)
+                    
+                    # Calculate absolute offsets (paragraph start + sentence offset)
+                    abs_start = start + sent_start_in_para
+                    abs_end = start + sent_end_in_para
+                    
                     chunks.append(
                         self._emit_chunk(
-                            [
-                                (sent, 0, 0)
-                            ],  # Note: You might need to adjust start/end calc here if critical
+                            [(sent, abs_start, abs_end)],
                             document_id,
                             normalization_version,
-                            start,
-                            start + len(sent),
+                            abs_start,
+                            abs_end,
                             para_index,
                             para_index,
                             chunk_index,
                         )
                     )
                     chunk_index += 1
+                    sent_cursor = sent_end_in_para
+                    
                 i += 1
                 para_index += 1
                 continue

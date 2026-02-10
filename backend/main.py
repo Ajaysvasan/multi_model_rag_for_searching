@@ -1,3 +1,10 @@
+"""
+RAG System Main Entry Point.
+
+All initialization (models, cache, history, LLM) happens BEFORE the query loop.
+The query experience is clean with no loading messages.
+"""
+
 import os
 import sys
 
@@ -6,13 +13,12 @@ from config import Config
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from cache_layer.cache import TopicCacheManager
-from data_layer.chunkstore.Chunkstore import (
-    ChunkMetadataStore,
-)  # your SQLite-backed store
+from data_layer.chunkstore.Chunkstore import ChunkMetadataStore
 from data_layer.ingest.chunker import TextChunker
 from data_layer.ingest.normalizer import NormalizationProfiles
 from data_layer.ingest.storage.embedding import EmbeddingRecord
@@ -67,7 +73,7 @@ def run_ingestion(model, dim):
     # Chunk
     chunker = TextChunker(
         target_tokens=CHUNK_SIZE,
-        max_tokens=int(CHUNK_SIZE * 1.25),  # Allow 25% growth max
+        max_tokens=int(CHUNK_SIZE * 1.25),
         overlap_tokens=CHUNK_OVERLAP,
     )
 
@@ -102,7 +108,7 @@ def run_ingestion(model, dim):
                 )
             )
 
-            # Prepare metadata row for SQLite
+            # Prepare metadata row for SQLite - INCLUDING chunk text
             metadata_rows.append(
                 {
                     "chunk_id": ch.chunk_id,
@@ -114,6 +120,7 @@ def run_ingestion(model, dim):
                     "end_offset": ch.end_char,
                     "chunk_version": str(ch.chunk_version),
                     "normalization_version": str(Config.NORMALIZATION_VERSION),
+                    "chunk_text": ch.text,  # Store the actual text!
                 }
             )
 
@@ -141,120 +148,178 @@ def run_ingestion(model, dim):
     return index
 
 
-def run_retrieval(model, dim):
-    """Run the retrieval/query system."""
-    print("\n" + "=" * 60)
-    print("Initializing Retrieval Engine")
-    print("=" * 60 + "\n")
-
-    # Initialize FAISS HNSW index
-    index = HNSWIndex(
-        dim=dim,
-        index_path=INDEX_PATH,
-    )
-
-    # Load the existing index
+def initialize_system():
+    """
+    Initialize ALL components upfront before any user interaction.
+    Returns fully initialized engine ready for queries.
+    """
+    os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(METADATA_DB_PATH), exist_ok=True)
+    
+    print("=" * 60)
+    print("INITIALIZING RAG SYSTEM")
+    print("=" * 60)
+    print()
+    
+    # 1. Load embedding model
+    print("[1/6] Loading embedding model...")
+    embed_model = SentenceTransformer(EMBED_MODEL_NAME)
+    dim = embed_model.get_sentence_embedding_dimension()
+    print(f"       ✓ {EMBED_MODEL_NAME} (dim={dim})")
+    
+    # 2. Check/run ingestion
+    if not check_ingestion_exists():
+        print("\n[2/6] Running first-time ingestion...")
+        run_ingestion(embed_model, dim)
+    else:
+        print("[2/6] ✓ Index and database found")
+    
+    # 3. Load FAISS index
+    print("[3/6] Loading FAISS index...")
+    index = HNSWIndex(dim=dim, index_path=INDEX_PATH)
     index.load()
-    print(f"Loaded FAISS index with {index.index.ntotal} vectors")
-
-    # Initialize metadata store
+    print(f"       ✓ Loaded {index.index.ntotal} vectors")
+    
+    # 4. Load metadata store
+    print("[4/6] Loading metadata store...")
     metadata_store = ChunkMetadataStore(db_path=METADATA_DB_PATH)
-    print(f"Loaded metadata store with {metadata_store.count_chunks()} chunks")
-
-    # Initialize cache and history
+    print(f"       ✓ Loaded {metadata_store.count_chunks()} chunks")
+    
+    # 5. Initialize cache and history
+    print("[5/6] Initializing cache and history...")
     cache = TopicCacheManager()
-
     history = ConversationHistory(
         session_id="default",
         db_path=str(Config.CACHE_HISTORY_DB_PATH),
-        sim_threshold=0.90,  # Increased from 0.80 for more precise matching
+        sim_threshold=0.90,
     )
-
-    # Create retrieval engine
+    print("       ✓ Cache and history ready")
+    
+    # 6. Initialize LLM generator
+    print("[6/6] Loading LLM model (this may take a while on first run)...")
+    
+    # Check if model exists
+    from generation_layer.generator import LlamaGenerator
+    generator = LlamaGenerator(
+        model_name=Config.GENERATION_MODEL,
+        models_dir=str(Config.MODELS_DIR),
+    )
+    
+    if generator.is_model_cached():
+        print(f"       Found cached model: {Config.GENERATION_MODEL}")
+    else:
+        print(f"       Downloading model: {Config.GENERATION_MODEL}")
+        print("       This is a one-time download (~16GB)...")
+    
+    generator.load_model(show_progress=True)
+    print("       ✓ LLM ready")
+    
+    # Create retrieval engine with pre-loaded generator
     engine = RetrievalEngine(
         cache=cache,
         index=index,
-        embedding_model=model,
+        embedding_model=embed_model,
         history=history,
         ann_top_k=Config.ANN_TOP_K,
         history_enabled=True,
         metadata_store=metadata_store,
+        generator=generator,  # Pass pre-loaded generator
     )
-
-    print("\n" + "=" * 60)
-    print("RAG System Ready! You can now query your documents.")
+    
+    print()
     print("=" * 60)
-    print("Type 'quit' or 'exit' to stop.\n")
+    print("SYSTEM READY")
+    print("=" * 60)
+    
+    return engine, metadata_store
 
-    # Interactive query loop
+
+def run_query_loop(engine):
+    """
+    Interactive query loop. All initialization is done - queries are instant.
+    """
+    print()
+    print("Type your question to get an answer with sources.")
+    print("Commands: /retrieve <query> for chunks only, quit to exit")
+    print()
+    
     while True:
         try:
-            query = input("\nEnter your query: ").strip()
-
-            if not query:
+            # Clean prompt
+            user_input = input("You: ").strip()
+            
+            if not user_input:
                 continue
-
-            if query.lower() in ["quit", "exit", "q"]:
-                print("\nExiting...")
+            
+            if user_input.lower() in ["quit", "exit", "q"]:
+                print("\nGoodbye!")
                 break
-
-            print(f"\nSearching for: '{query}'")
-            print("-" * 60)
-
-            # Retrieve chunk IDs and metadata
-            results = engine.retrieve_with_metadata(query)
-
-            if not results:
-                print("No results found.")
-                continue
-
-            print(f"\nFound {len(results)} relevant chunks:\n")
-
-            for i, meta in enumerate(results, 1):
-                print(f"Result {i}:")
-                print(f"  Source: {meta['source_path']}")
-                print(f"  Chunk Index: {meta['chunk_index']}")
-                print(f"  Offsets: {meta['start_offset']} - {meta['end_offset']}")
-                print(f"  Modality: {meta['modality']}")
+            
+            # Parse command
+            if user_input.startswith("/retrieve "):
+                query = user_input[10:].strip()
+                mode = "retrieve"
+            else:
+                query = user_input
+                mode = "answer"
+            
+            if mode == "retrieve":
+                # Simple retrieval mode
+                results = engine.retrieve_with_metadata(query)
+                
+                if not results:
+                    print("\nNo results found.\n")
+                    continue
+                
+                print(f"\nFound {len(results)} relevant chunks:\n")
+                for i, meta in enumerate(results, 1):
+                    print(f"[{i}] {meta['source_path']}")
+                    text_preview = meta.get('chunk_text', '')[:150].replace('\n', ' ')
+                    if text_preview:
+                        print(f"    {text_preview}...")
                 print()
-
+            
+            else:
+                # Full RAG mode - generate answer
+                response = engine.retrieve_and_generate(query)
+                
+                # Clean GPT-style output
+                print(f"\nAssistant: {response.answer}")
+                
+                if response.citations:
+                    print("\n" + "-" * 40)
+                    print("Sources:")
+                    for citation in response.citations:
+                        source_name = os.path.basename(citation['source_path'])
+                        print(f"  [{citation['id']}] {source_name}")
+                
+                print()
+        
         except KeyboardInterrupt:
-            print("\n\nInterrupted. Exiting...")
+            print("\n\nGoodbye!")
             break
         except Exception as e:
-            print(f"\nError: {e}")
-            import traceback
-
-            traceback.print_exc()
-
-    # Cleanup
-    metadata_store.close()
-    print("\nClosed metadata store. Goodbye!")
+            print(f"\nError: {e}\n")
 
 
 def main():
-    os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
-    os.makedirs(os.path.dirname(METADATA_DB_PATH), exist_ok=True)
-
-    # Load embedding model
-    print("Loading embedding model...")
-    model = SentenceTransformer(EMBED_MODEL_NAME)
-    dim = model.get_sentence_embedding_dimension()
-    print(f"Model loaded: {EMBED_MODEL_NAME} (dim={dim})")
-
-    # Check if ingestion has already been done
-    if check_ingestion_exists():
-        print("\n✓ Found existing index and database. Skipping ingestion.")
-        print("  To re-run ingestion, delete:")
-        print(f"    - {INDEX_PATH}")
-        print(f"    - {INDEX_PATH}.ids")
-        print(f"    - {METADATA_DB_PATH}")
-        run_retrieval(model, dim)
-    else:
-        print("\n✗ No existing index found. Running ingestion first...")
-        run_ingestion(model, dim)
-        print("\nNow starting retrieval system...")
-        run_retrieval(model, dim)
+    """Main entry point."""
+    try:
+        # Initialize everything upfront
+        engine, metadata_store = initialize_system()
+        
+        # Run query loop (no loading during queries)
+        run_query_loop(engine)
+        
+        # Cleanup
+        metadata_store.close()
+        
+    except KeyboardInterrupt:
+        print("\n\nInterrupted during initialization.")
+    except Exception as e:
+        print(f"\nFatal error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

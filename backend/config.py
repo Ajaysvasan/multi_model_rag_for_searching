@@ -28,6 +28,20 @@ class Config:
 
     CACHE_HISTORY_DB_PATH = Path("data/index/cache_history.db")
 
+    # Reranking Configuration
+    RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    RERANK_TOP_K = 5  # Number of results after reranking
+    
+    # Validation Configuration
+    MIN_RELEVANCE_SCORE = 0.3  # Minimum score for chunk to pass validation
+    MAX_RETRIES = 2  # Max re-retrieval attempts on validation failure
+    
+    # Generation Configuration - Local GGUF Model (~4.4GB)
+    GENERATION_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+    GENERATION_MODEL_FILE = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # ~4.4GB
+    MODELS_DIR = Path("models")
+    USE_LOCAL_MODEL = True  # Set False to use HuggingFace API instead
+
 
 if __name__ == "__main__":
     test_config = Config()

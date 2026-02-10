@@ -1,4 +1,6 @@
-# --- Core AI Engines ---
+llama-cpp-python
+huggingface_hub
+requests
 torch
 transformers
 sentence-transformers
@@ -6,21 +8,16 @@ accelerate
 opencv-python
 pytesseract
 
-# ---For Audio---
 openai-whisper
 pydub
 
 
-# --- Vector Database ---
-# Specific wheel for modern CUDA/Python support
 faiss-gpu-cu12
 
-# --- Document Handling ---
 python-docx
 PyPDF2
 pillow
 
-# --- Utilities ---
-numpy<2.0
+numpy
 tqdm
 pyyaml

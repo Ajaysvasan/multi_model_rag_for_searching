@@ -31,7 +31,9 @@ class ChunkMetadataStore:
                 end_offset INTEGER NOT NULL,
 
                 chunk_version TEXT NOT NULL,
-                normalization_version TEXT NOT NULL
+                normalization_version TEXT NOT NULL,
+                
+                chunk_text TEXT
             );
             """)
 
@@ -41,6 +43,12 @@ class ChunkMetadataStore:
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chunks_modality ON chunks(modality);"
         )
+        
+        # Add chunk_text column if it doesn't exist (migration for existing DBs)
+        try:
+            self._conn.execute("ALTER TABLE chunks ADD COLUMN chunk_text TEXT;")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         self._conn.commit()
 
@@ -49,15 +57,10 @@ class ChunkMetadataStore:
         Insert many chunk metadata rows.
 
         Each row must contain keys:
-        - chunk_id
-        - document_id
-        - source_path
-        - modality
-        - chunk_index
-        - start_offset
-        - end_offset
-        - chunk_version
-        - normalization_version
+        - chunk_id, document_id, source_path, modality
+        - chunk_index, start_offset, end_offset
+        - chunk_version, normalization_version
+        - chunk_text (optional but recommended)
 
         Duplicate chunk_ids are ignored (idempotent ingestion).
         """
@@ -72,9 +75,10 @@ class ChunkMetadataStore:
             start_offset,
             end_offset,
             chunk_version,
-            normalization_version
+            normalization_version,
+            chunk_text
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
 
         values = []
@@ -90,6 +94,7 @@ class ChunkMetadataStore:
                     int(r["end_offset"]),
                     r["chunk_version"],
                     r["normalization_version"],
+                    r.get("chunk_text", ""),
                 )
             )
 
@@ -116,7 +121,8 @@ class ChunkMetadataStore:
             start_offset,
             end_offset,
             chunk_version,
-            normalization_version
+            normalization_version,
+            chunk_text
         FROM chunks
         WHERE chunk_id IN ({placeholders});
         """
@@ -137,6 +143,7 @@ class ChunkMetadataStore:
                     "end_offset": row[6],
                     "chunk_version": row[7],
                     "normalization_version": row[8],
+                    "chunk_text": row[9] if len(row) > 9 and row[9] else "",
                 }
             )
 
