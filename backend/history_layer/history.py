@@ -2,6 +2,8 @@ import os
 import sys
 import time
 
+from backend.config import Config
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -20,16 +22,12 @@ from .history_node import HistoryEntry
 
 
 class ConversationHistory:
-    """
-    Per-session, bounded semantic history for retrieval reuse.
-    """
-
     def __init__(
         self,
         max_size: int = 32,
         sim_threshold: float = 0.80,
         session_id: str = "",
-        db_path: str = "data/index/cache_history.db",
+        db_path: str = Config.DB_PATH,
         max_age_seconds: int = 3600,
     ):
         self.max_size = max_size
@@ -38,19 +36,15 @@ class ConversationHistory:
         self.db_path = db_path
         self.max_age_seconds = max_age_seconds
         self._entries: Deque[HistoryEntry] = deque(maxlen=max_size)
-        
-        # Initialize database and load existing history
+
         self._init_db()
         self._load_from_db()
 
     def _init_db(self):
-        """Initialize database connection and create history table if needed."""
-        # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
+
         conn = sqlite3.connect(self.db_path)
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS history_entries (
                 session_id TEXT,
                 topic_label TEXT,
@@ -61,13 +55,11 @@ class ConversationHistory:
                 timestamp REAL,
                 PRIMARY KEY (session_id, topic_label, modality_filter, retrieval_policy)
             )
-        """
-        )
+        """)
         conn.commit()
         conn.close()
 
     def _load_from_db(self):
-        """Load history entries for this session from database."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.execute(
             """
@@ -117,12 +109,10 @@ class ConversationHistory:
             self._entries.append(entry)
 
     def _save_entry(self, entry: HistoryEntry):
-        """Save or update a single history entry in the database."""
         conn = sqlite3.connect(self.db_path)
-        
-        # Serialize numpy array to blob
+
         embedding_blob = entry.query_embedding.astype(np.float32).tobytes()
-        
+
         conn.execute(
             """
             INSERT OR REPLACE INTO history_entries (
@@ -144,7 +134,6 @@ class ConversationHistory:
         conn.close()
 
     def _clear_session_db(self):
-        """Clear all history entries for this session from the database."""
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             "DELETE FROM history_entries WHERE session_id = ?",
@@ -162,7 +151,7 @@ class ConversationHistory:
         or None if no entry passes the similarity threshold.
         """
         self._evict_stale()
-        
+
         if not self._entries:
             return None
 
@@ -183,15 +172,10 @@ class ConversationHistory:
         query_embedding: np.ndarray,
         chunk_ids: List[str],
     ) -> None:
-        """
-        Add a new history entry. If an entry with the same topic_key exists,
-        refresh it and move it to the most recent position.
-        """
         self._evict_stale()
         now = time.time()
         q = self._normalize(query_embedding)
 
-        # Check if entry already exists
         for i, entry in enumerate(self._entries):
             if entry.topic_key == topic_key:
                 self._entries.remove(entry)
@@ -202,12 +186,10 @@ class ConversationHistory:
                     timestamp=now,
                 )
                 self._entries.append(new_entry)
-                
-                # Persist to database
+
                 self._save_entry(new_entry)
                 return
 
-        # New entry
         new_entry = HistoryEntry(
             topic_key=topic_key,
             query_embedding=q,
@@ -215,24 +197,20 @@ class ConversationHistory:
             timestamp=now,
         )
         self._entries.append(new_entry)
-        
-        # Persist to database
+
         self._save_entry(new_entry)
 
     def clear(self) -> None:
-        """Clear history (e.g., on session end)."""
         self._entries.clear()
         self._clear_session_db()
 
     def clear_session(self) -> None:
-        """Public alias — clear history for this session."""
         self.clear()
 
     def size(self) -> int:
         return len(self._entries)
 
     def _evict_stale(self) -> None:
-        """Remove entries older than max_age_seconds from deque and DB."""
         cutoff = time.time() - self.max_age_seconds
         stale = [e for e in self._entries if e.timestamp < cutoff]
         if not stale:

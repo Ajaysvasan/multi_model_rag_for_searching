@@ -1,13 +1,3 @@
-"""
-This script:
-- Builds the semantic vector index from a fixed dataset
-- Validates ANN behavior with deterministic sanity checks
-- Is intended to be run offline and re-run safely
-
-This is NOT a production service.
-This is a controlled ingestion + validation entry point.
-"""
-
 import hashlib
 import os
 import sys
@@ -20,7 +10,6 @@ sys.path.append(parent_dir)
 from pathlib import Path
 from typing import Dict, List
 
-import numpy as np
 from chunkstore.Chunkstore import ChunkMetadataStore
 from ingest.chunker import Chunk, TextChunker
 from ingest.normalizer import NormalizationProfiles
@@ -28,8 +17,6 @@ from ingest.storage.embedding import EmbeddingBatcher
 from ingest.storage.hnsw import HNSWIndex
 from ingest.Text_files_processing.file_loader import FileLoader
 from ingest.Text_files_processing.text_extractor import TextExtractor
-
-# You must provide your embedding model here
 from sentence_transformers import SentenceTransformer
 
 from config import Config
@@ -66,7 +53,6 @@ def run_baseline_ingestion() -> List[Chunk]:
         path: normalizer.normalize_text(text) for path, text in extracted_texts.items()
     }
 
-    # 4. Chunk documents
     log("Chunking documents")
     chunker = TextChunker(chunk_version=Config.CHUNK_VERSION)
 
@@ -92,13 +78,11 @@ def run_baseline_ingestion() -> List[Chunk]:
 
     log(f"Produced {len(all_chunks)} chunks")
 
-    # 5. Load embedding model
     log("Loading embedding model")
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
     embedding_dim = model.get_sentence_embedding_dimension()
 
-    # 6. Embed chunks
     log("Embedding chunks")
     batcher = EmbeddingBatcher(
         model=model,
@@ -111,7 +95,6 @@ def run_baseline_ingestion() -> List[Chunk]:
     if len(embeddings) != len(all_chunks):
         raise RuntimeError("Embedding count mismatch")
 
-    # 7. Build / load ANN index
     log("Building HNSW index")
     index = HNSWIndex(
         dim=embedding_dim,
@@ -123,7 +106,6 @@ def run_baseline_ingestion() -> List[Chunk]:
 
     log(f"HNSW index contains {index.index.ntotal} vectors")
 
-    # 8. Persist metadata
     log("Persisting chunk metadata")
     metadata_store = ChunkMetadataStore(Config.METADATA_DB_PATH)
 
@@ -152,11 +134,9 @@ def run_baseline_ingestion() -> List[Chunk]:
     return all_chunks
 
 
-# Ann test
 def run_ann_sanity_tests_and_demo(chunks: List[Chunk]) -> None:
     log("Running ANN sanity tests and retrieval demo")
 
-    # Reload index
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embedding_dim = model.get_sentence_embedding_dimension()
 
@@ -183,7 +163,6 @@ def run_ann_sanity_tests_and_demo(chunks: List[Chunk]) -> None:
         raise AssertionError("Self-retrieval test FAILED")
     log("Self-retrieval test PASSED")
 
-    # ---- Retrieval demo: ANN -> metadata -> file paths ----
     log("Retrieval demo: resolving chunk IDs to source files")
 
     metas = metadata_store.get_by_ids(results)

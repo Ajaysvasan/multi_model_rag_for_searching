@@ -5,11 +5,9 @@ from typing import Dict
 
 class TextExtractor:
     def __init__(self):
-        """Initialize the text extractor"""
         pass
 
     def _extract_from_txt(self, file_path: str) -> str:
-        """Extract text from a .txt file"""
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 return file.read()
@@ -25,7 +23,6 @@ class TextExtractor:
             return ""
 
     def _extract_from_docx(self, file_path: str) -> str:
-        """Extract text from a .docx file"""
         try:
             from docx import Document
 
@@ -44,7 +41,6 @@ class TextExtractor:
             return ""
 
     def _extract_from_doc(self, file_path: str) -> str:
-        """Extract text from a .doc file (legacy format)"""
         try:
             import textract
 
@@ -59,7 +55,6 @@ class TextExtractor:
             return ""
 
     def _extract_from_pdf(self, file_path: str) -> str:
-        """Extract text from a .pdf file"""
         try:
             import PyPDF2
 
@@ -77,7 +72,6 @@ class TextExtractor:
             return ""
 
     def extract_text_from_file(self, file_path: str) -> str:
-        """Extract text from a single file based on its extension"""
         if not os.path.exists(file_path):
             print(f"Error: File does not exist: {file_path}")
             return ""

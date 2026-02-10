@@ -17,7 +17,6 @@ from data_layer.ingest.storage.embedding import EmbeddingRecord
 from data_layer.ingest.storage.hnsw import HNSWIndex
 from data_layer.ingest.Text_files_processing.file_loader import FileLoader
 from data_layer.ingest.Text_files_processing.text_extractor import TextExtractor
-from metadata_loader import load_metadata_store
 
 DATASET_PATH = Config.DATASET_PATH
 INDEX_PATH = Config.INDEX_PATH

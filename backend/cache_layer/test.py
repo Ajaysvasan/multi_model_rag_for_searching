@@ -20,7 +20,6 @@ def print_levels(step: str, cache: TopicCacheManager):
 
 
 def main():
-    # Small capacities to force promotions/demotions/evictions quickly
     cache = TopicCacheManager()
 
     sequence = [

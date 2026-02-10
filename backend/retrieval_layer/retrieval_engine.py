@@ -1,24 +1,9 @@
-"""
-Enhanced Retrieval Engine.
-
-Orchestrates the full RAG pipeline:
-Query → Cache/History → ANN → Reranking → Validation → Generation
-
-Integrates:
-- Topic-based cache (3-tier LRU with persistence)
-- Session history with similarity matching
-- Cross-encoder reranking
-- Retrieval validation with re-retrieval
-- Answer generation with citations
-"""
-
 import logging
 import os
 import re
 import sys
-import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 
@@ -33,9 +18,6 @@ from data_layer.chunkstore.Chunkstore import ChunkMetadataStore
 from data_layer.ingest.storage.hnsw import HNSWIndex
 from history_layer.history import ConversationHistory
 
-# -------------------------
-# Logging setup
-# -------------------------
 logger = logging.getLogger("retrieval")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
@@ -47,7 +29,7 @@ if not logger.handlers:
 
 @dataclass
 class RetrievalResult:
-    """Complete result from retrieval pipeline."""
+
     query: str
     chunk_ids: List[str]
     chunks_with_metadata: List[dict]
@@ -57,9 +39,9 @@ class RetrievalResult:
     validation_retries: int = 0
 
 
-@dataclass 
+@dataclass
 class RAGResponse:
-    """Full RAG response with answer and citations."""
+
     query: str
     answer: str
     citations: List[dict]
@@ -70,10 +52,6 @@ class RAGResponse:
 
 
 class QueryRouter:
-    """
-    Simple, rule-based router for v1.
-    """
-
     @staticmethod
     def infer_modality(query: str) -> str:
         q = query.lower()
@@ -105,20 +83,6 @@ class QueryRouter:
 
 
 class RetrievalEngine:
-    """
-    Enhanced RAG retrieval engine.
-    
-    Orchestrates:
-    - Query -> TopicKey
-    - Cache lookup
-    - History fallback (per session)
-    - ANN fallback
-    - Reranking (cross-encoder)
-    - Validation (with re-retrieval)
-    - Answer generation (with citations)
-    - Cache + History update
-    """
-
     def __init__(
         self,
         cache: TopicCacheManager,
@@ -139,34 +103,29 @@ class RetrievalEngine:
         self.ann_top_k = ann_top_k
         self.history_enabled = history_enabled
         self.metadata_store = metadata_store
-        
-        # New layers (lazy loaded if not provided)
+
         self._reranker = reranker
         self._validator = validator
         self._generator = generator
-    
-    # -------------------------
-    # Lazy initialization
-    # -------------------------
-    
+
     @property
     def reranker(self):
-        """Lazy load reranker."""
         if self._reranker is None:
             try:
                 from reranking.reranker import CrossEncoderReranker
+
                 self._reranker = CrossEncoderReranker()
                 logger.info("Initialized cross-encoder reranker")
             except Exception as e:
                 logger.warning(f"Could not initialize reranker: {e}")
         return self._reranker
-    
+
     @property
     def validator(self):
-        """Lazy load validator."""
         if self._validator is None:
             try:
                 from validation_layer.validator import RetrievalValidator
+
                 self._validator = RetrievalValidator(
                     embedding_model=self.embedding_model
                 )
@@ -174,22 +133,18 @@ class RetrievalEngine:
             except Exception as e:
                 logger.warning(f"Could not initialize validator: {e}")
         return self._validator
-    
+
     @property
     def generator(self):
-        """Lazy load generator."""
         if self._generator is None:
             try:
                 from generation_layer.generator import AnswerGenerator
+
                 self._generator = AnswerGenerator()
                 logger.info("Initialized answer generator")
             except Exception as e:
                 logger.warning(f"Could not initialize generator: {e}")
         return self._generator
-
-    # -------------------------
-    # Public API
-    # -------------------------
 
     def retrieve(self, query: str) -> List[str]:
         """
@@ -198,18 +153,17 @@ class RetrievalEngine:
         """
         key = QueryRouter.build_topic_key(query)
 
-        # 1) Cache lookup
         state = self.cache.lookup(key)
         if state is not None:
-            logger.info(f"CACHE HIT: {len(state.cached_chunk_ids)} chunks for '{key.topic_label}'")
+            logger.info(
+                f"CACHE HIT: {len(state.cached_chunk_ids)} chunks for '{key.topic_label}'"
+            )
             query_vec = self._embed_query(query)
             self.history.add_or_update(key, query_vec, state.cached_chunk_ids)
             return state.cached_chunk_ids
 
-        # 2) Embed once (used for history + ANN)
         query_vec = self._embed_query(query)
 
-        # 3) History lookup
         if self.history_enabled:
             reused = self.history.find_similar(query_vec)
             if reused is not None:
@@ -218,45 +172,34 @@ class RetrievalEngine:
                 self.history.add_or_update(key, query_vec, reused)
                 return reused
 
-        # 4) ANN search
         logger.info("ANN FALLBACK")
         chunk_ids = self._ann_search(query_vec)
 
-        # 5) Update cache + history
         self.cache.insert_new(key, cached_chunk_ids=chunk_ids)
         self.history.add_or_update(key, query_vec, chunk_ids)
         return chunk_ids
 
     def retrieve_with_metadata(self, query: str) -> List[dict]:
-        """Retrieve chunks with metadata."""
         chunk_ids = self.retrieve(query)
         if self.metadata_store is None:
             return [{"chunk_id": cid} for cid in chunk_ids]
         return self.metadata_store.get_by_ids(chunk_ids)
-    
+
     def retrieve_enhanced(self, query: str) -> RetrievalResult:
-        """
-        Enhanced retrieval with reranking and validation.
-        
-        Pipeline: Cache/History/ANN -> Get Text -> Rerank -> Validate
-        
-        Returns:
-            RetrievalResult with full metadata
-        """
         key = QueryRouter.build_topic_key(query)
         source = "ann"
-        
+
         # Embed query ONCE — reused for history, validation, lightweight reranking
         query_vec = self._embed_query(query)
-        
-        # 1) Try cache first
+
         state = self.cache.lookup(key)
         if state is not None:
-            logger.info(f"CACHE HIT: {len(state.cached_chunk_ids)} cached chunks for '{key.topic_label}'")
+            logger.info(
+                f"CACHE HIT: {len(state.cached_chunk_ids)} cached chunks for '{key.topic_label}'"
+            )
             source = "cache"
             chunk_ids = state.cached_chunk_ids
         else:
-            # 2) Try history
             if self.history_enabled:
                 reused = self.history.find_similar(query_vec)
                 if reused is not None:
@@ -264,41 +207,42 @@ class RetrievalEngine:
                     source = "history"
                     chunk_ids = reused
                 else:
-                    # 3) ANN fallback
                     logger.info("ANN FALLBACK")
                     chunk_ids = self._ann_search(query_vec, k=self.ann_top_k * 2)
             else:
                 chunk_ids = self._ann_search(query_vec, k=self.ann_top_k * 2)
-        
-        # 4) Get metadata and text for chunks
+
         chunks_with_text = self._get_chunks_with_text(chunk_ids)
-        
-        # 5) Rerank — ALL paths, not just ANN
+
         reranked = False
         if chunks_with_text:
             try:
                 if source == "ann" and self.reranker:
-                    # Full cross-encoder reranking for fresh ANN results
-                    rerank_results = self.reranker.rerank(query, chunks_with_text, text_key="chunk_text")
+                    rerank_results = self.reranker.rerank(
+                        query, chunks_with_text, text_key="chunk_text"
+                    )
                     chunks_with_text = [r.metadata for r in rerank_results]
                     reranked = True
-                    logger.info(f"Cross-encoder reranked to {len(chunks_with_text)} chunks")
+                    logger.info(
+                        f"Cross-encoder reranked to {len(chunks_with_text)} chunks"
+                    )
                 else:
-                    # Lightweight bi-encoder reranking for cache/history hits
                     from reranking.reranker import LightweightReranker
+
                     light = LightweightReranker(
                         embedding_model=self.embedding_model,
                         top_k=self.ann_top_k,
                     )
                     chunks_with_text = light.rerank(query_vec, chunks_with_text)
                     reranked = True
-                    logger.info(f"Lightweight reranked to {len(chunks_with_text)} chunks")
-                
+                    logger.info(
+                        f"Lightweight reranked to {len(chunks_with_text)} chunks"
+                    )
+
                 chunk_ids = [c["chunk_id"] for c in chunks_with_text]
             except Exception as e:
                 logger.warning(f"Reranking failed: {e}")
-        
-        # 6) Validate — ALL paths, not just ANN
+
         validated = False
         validation_retries = 0
         if self.validator and chunks_with_text:
@@ -313,15 +257,16 @@ class RetrievalEngine:
                 chunk_ids = [c["chunk_id"] for c in chunks_with_text]
                 validated = True
                 validation_retries = retries
-                logger.info(f"Validation: {len(chunk_ids)} valid chunks, {retries} retries")
+                logger.info(
+                    f"Validation: {len(chunk_ids)} valid chunks, {retries} retries"
+                )
             except Exception as e:
                 logger.warning(f"Validation failed: {e}")
-        
-        # 7) Update cache + history with final (reranked/validated) results
+
         if chunk_ids:
             self.cache.insert_new(key, cached_chunk_ids=chunk_ids)
             self.history.add_or_update(key, query_vec, chunk_ids)
-        
+
         return RetrievalResult(
             query=query,
             chunk_ids=chunk_ids,
@@ -331,17 +276,11 @@ class RetrievalEngine:
             validated=validated,
             validation_retries=validation_retries,
         )
-    
+
     def retrieve_and_generate(self, query: str) -> RAGResponse:
-        """
-        Full RAG pipeline: retrieve + rerank + validate + generate answer.
-        
-        Returns:
-            RAGResponse with answer and citations
-        """
         # 1) Enhanced retrieval
         retrieval_result = self.retrieve_enhanced(query)
-        
+
         if not retrieval_result.chunks_with_metadata:
             return RAGResponse(
                 query=query,
@@ -352,14 +291,16 @@ class RetrievalEngine:
                 success=False,
                 error="No chunks retrieved",
             )
-        
+
         # 2) Generate answer with citations
         if self.generator is None:
             # Fallback: return chunk summaries
-            chunks_text = "\n\n---\n\n".join([
-                f"[{i+1}] {c.get('chunk_text', '')[:200]}..."
-                for i, c in enumerate(retrieval_result.chunks_with_metadata[:5])
-            ])
+            chunks_text = "\n\n---\n\n".join(
+                [
+                    f"[{i+1}] {c.get('chunk_text', '')[:200]}..."
+                    for i, c in enumerate(retrieval_result.chunks_with_metadata[:5])
+                ]
+            )
             return RAGResponse(
                 query=query,
                 answer=f"Found {len(retrieval_result.chunks_with_metadata)} relevant chunks:\n\n{chunks_text}",
@@ -368,13 +309,13 @@ class RetrievalEngine:
                 chunks_used=len(retrieval_result.chunks_with_metadata),
                 success=True,
             )
-        
+
         try:
             gen_result = self.generator.generate(
                 query=query,
                 chunks=retrieval_result.chunks_with_metadata,
             )
-            
+
             # Convert citations to dicts
             citations = [
                 {
@@ -386,7 +327,7 @@ class RetrievalEngine:
                 }
                 for c in gen_result.citations
             ]
-            
+
             return RAGResponse(
                 query=query,
                 answer=gen_result.answer,
@@ -396,7 +337,7 @@ class RetrievalEngine:
                 success=gen_result.success,
                 error=gen_result.error,
             )
-            
+
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             return RAGResponse(
@@ -409,10 +350,6 @@ class RetrievalEngine:
                 error=str(e),
             )
 
-    # -------------------------
-    # Internal helpers
-    # -------------------------
-
     def _embed_query(self, query: str) -> np.ndarray:
         vec = self.embedding_model.encode(
             query,
@@ -420,23 +357,23 @@ class RetrievalEngine:
         )
         return np.asarray(vec, dtype="float32")
 
-    def _ann_search(self, query_vector: np.ndarray, k: int = None) -> List[str]:
+    def _ann_search(self, query_vector: np.ndarray, k: int = 0) -> List[str]:
         k = k or self.ann_top_k
         return self.index.search(query_vector, k=k)
-    
+
     def _get_chunks_with_text(self, chunk_ids: List[str]) -> List[dict]:
         """Get chunks with their text content from metadata store."""
         if not self.metadata_store:
             return [{"chunk_id": cid} for cid in chunk_ids]
-        
+
         metadata = self.metadata_store.get_by_ids(chunk_ids)
-        
+
         # Check each chunk for text from DB. Do NOT fall back to reading
         # source files — offsets refer to normalised text, not raw PDFs.
         for meta in metadata:
             if meta.get("chunk_text", "").strip():
                 continue  # Already have text from database
-            
+
             # Text missing — flag clearly so the LLM doesn't hallucinate
             source_path = meta.get("source_path", "unknown")
             logger.warning(
@@ -444,12 +381,11 @@ class RetrievalEngine:
                 f"Run 'python backfill_chunks.py' or re-ingest {source_path}"
             )
             meta["chunk_text"] = ""
-        
+
         # Filter out chunks with no usable text
         return [m for m in metadata if m.get("chunk_text", "").strip()]
-    
+
     def _retrieve_fresh(self, query: str) -> List[dict]:
-        """Fresh ANN retrieval for validation retry."""
         query_vec = self._embed_query(query)
         chunk_ids = self._ann_search(query_vec, k=self.ann_top_k * 2)
         return self._get_chunks_with_text(chunk_ids)

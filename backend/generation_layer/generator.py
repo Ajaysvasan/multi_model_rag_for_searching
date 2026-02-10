@@ -1,10 +1,3 @@
-"""
-Answer Generation Layer with Citations.
-
-Uses local GGUF model via llama-cpp-python for inference.
-Falls back to HuggingFace API if USE_LOCAL_MODEL is False.
-"""
-
 import logging
 import os
 import re
@@ -18,7 +11,8 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 from config import Config
-from .prompts import SYSTEM_PROMPTS, format_context_for_generation
+
+from .prompts import format_context_for_generation
 
 logger = logging.getLogger("generation")
 logger.setLevel(logging.INFO)
@@ -32,6 +26,7 @@ if not logger.handlers:
 @dataclass
 class Citation:
     """Represents a citation to a source chunk."""
+
     citation_id: int
     chunk_id: str
     source_path: str
@@ -43,7 +38,7 @@ class Citation:
 
 @dataclass
 class GenerationResult:
-    """Result of answer generation."""
+
     answer: str
     citations: List[Citation] = field(default_factory=list)
     raw_response: str = ""
@@ -54,100 +49,107 @@ class GenerationResult:
 
 
 class LlamaGenerator:
-    """
-    Generates answers using local GGUF model (llama-cpp-python) or HuggingFace API.
-    """
-    
-    DEFAULT_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
-    API_URL = "https://api-inference.huggingface.co/models"
-    
+
+    DEFAULT_MODEL = Config.DEFAULT_MODEL
+    # TODO : Fix the API not found issue
+    API_URL = Config.API_URL
+
     def __init__(
         self,
-        model_name: str = None,
-        models_dir: str = None,
-        use_local: bool = None,
-        api_token: str = None,
+        model_name: str = "",
+        models_dir: str = "",
+        use_local: bool = False,
+        api_token: str = "",
     ):
-        self.model_name = model_name or getattr(Config, 'GENERATION_MODEL', self.DEFAULT_MODEL)
-        self.model_file = getattr(Config, 'GENERATION_MODEL_FILE', 'mistral-7b-instruct-v0.2.Q4_K_M.gguf')
-        self.models_dir = Path(models_dir or getattr(Config, 'MODELS_DIR', 'models'))
-        self.use_local = use_local if use_local is not None else getattr(Config, 'USE_LOCAL_MODEL', True)
-        self.api_token = api_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
-        
+        self.model_name = model_name or getattr(
+            Config, "GENERATION_MODEL", self.DEFAULT_MODEL
+        )
+        self.model_file = getattr(
+            Config, "GENERATION_MODEL_FILE", "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+        )
+        self.models_dir = Path(models_dir or getattr(Config, "MODELS_DIR", "models"))
+        self.use_local = (
+            use_local
+            if use_local is not None
+            else getattr(Config, "USE_LOCAL_MODEL", True)
+        )
+        self.api_token = (
+            api_token
+            or os.environ.get("HF_TOKEN")
+            or os.environ.get("HUGGINGFACE_TOKEN")
+        )
+
         self.model = None
         self._is_loaded = False
-    
+
     def _get_model_path(self) -> Path:
-        """Get the local path to the GGUF model file."""
         return self.models_dir / self.model_file
-    
+
     def is_model_cached(self) -> bool:
-        """Check if model file exists locally."""
         if not self.use_local:
             return True
         return self._get_model_path().exists()
-    
+
     def load_model(self, show_progress: bool = True):
-        """Load the model."""
         if self._is_loaded:
             return
-        
+
         if not self.use_local:
             if show_progress:
                 logger.info(f"Using HuggingFace API: {self.model_name}")
             self._is_loaded = True
             return
-        
-        # Local GGUF model mode
+
         from llama_cpp import Llama
-        
+
         model_path = self._get_model_path()
-        
+
         if not model_path.exists():
             raise FileNotFoundError(
                 f"Model not found at {model_path}. "
                 f"Run 'python download_model.py' first."
             )
-        
+
         if show_progress:
             logger.info(f"Loading GGUF model: {model_path}")
-        
-        # Detect GPU layers
+
         n_gpu_layers = 0
         try:
             import torch
+
             if torch.cuda.is_available():
                 n_gpu_layers = -1  # Offload all layers to GPU
                 if show_progress:
                     logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
         except ImportError:
             pass
-        
+
         # Detect CPU thread count for optimal performance
         n_threads = os.cpu_count() or 4
-        
+
         self.model = Llama(
             model_path=str(model_path),
-            n_ctx=4096,         # Sufficient for RAG (3-5 chunks ~2k tokens)
+            n_ctx=4096,  # Sufficient for RAG (3-5 chunks ~2k tokens)
             n_gpu_layers=n_gpu_layers,
-            n_batch=512,        # Faster prompt processing
+            n_batch=512,  # Faster prompt processing
             n_threads=n_threads,
             verbose=False,
         )
-        
+
         if show_progress:
             logger.info("Model loaded successfully")
         self._is_loaded = True
-    
-    def _call_api(self, messages: List[dict], max_new_tokens: int = 200, temperature: float = 0.1) -> str:
-        """Call HuggingFace Inference API."""
+
+    def _call_api(
+        self, messages: List[dict], max_new_tokens: int = 200, temperature: float = 0.1
+    ) -> str:
         import requests
-        
+
         url = f"{self.API_URL}/{self.model_name}/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
-        
+
         payload = {
             "model": self.model_name,
             "messages": messages,
@@ -155,18 +157,19 @@ class LlamaGenerator:
             "temperature": temperature,
             "stream": False,
         }
-        
+
         response = requests.post(url, headers=headers, json=payload, timeout=120)
         if response.status_code != 200:
             raise Exception(f"API error ({response.status_code}): {response.text}")
-        
+
         result = response.json()
         if "choices" in result and len(result["choices"]) > 0:
             return result["choices"][0]["message"]["content"]
         raise Exception(f"Unexpected API response: {result}")
-    
-    def _generate_local(self, messages: List[dict], max_new_tokens: int = 200, temperature: float = 0.1) -> str:
-        """Generate using local GGUF model via llama-cpp-python."""
+
+    def _generate_local(
+        self, messages: List[dict], max_new_tokens: int = 200, temperature: float = 0.1
+    ) -> str:
         response = self.model.create_chat_completion(
             messages=messages,
             max_tokens=max_new_tokens,
@@ -175,37 +178,44 @@ class LlamaGenerator:
             top_k=40,
             repeat_penalty=1.1,
         )
-        
+
         return response["choices"][0]["message"]["content"]
-    
+
     @staticmethod
     def _clean_response(text: str) -> str:
         """Post-process to remove hallucinated references/URLs."""
         # Remove any generated reference sections
-        for marker in ["References:", "Sources:", "Bibliography:", "Works Cited:",
-                       "Citation:", "Citations:", "Further Reading:"]:
+        for marker in [
+            "References:",
+            "Sources:",
+            "Bibliography:",
+            "Works Cited:",
+            "Citation:",
+            "Citations:",
+            "Further Reading:",
+        ]:
             idx = text.find(marker)
             if idx > 0:
                 text = text[:idx].rstrip()
-        
+
         # Remove hallucinated URLs
-        text = re.sub(r'https?://\S+', '', text)
-        
+        text = re.sub(r"https?://\S+", "", text)
+
         # Remove hallucinated "Retrieved from" citations
-        text = re.sub(r'Retrieved (?:from|on) .+?(?:\n|$)', '', text)
-        
+        text = re.sub(r"Retrieved (?:from|on) .+?(?:\n|$)", "", text)
+
         # Remove fake academic citations like "(n.d.)" or "(2021)"
-        text = re.sub(r'\([a-zA-Z\s,&]+,?\s*(?:n\.d\.|\d{4})\)', '', text)
-        
+        text = re.sub(r"\([a-zA-Z\s,&]+,?\s*(?:n\.d\.|\d{4})\)", "", text)
+
         # Remove ReportLab / PDF metadata mentions
-        text = re.sub(r'(?i)reportlab[\w\s]*(?:generated|pdf)?[^.]*\.?', '', text)
-        
+        text = re.sub(r"(?i)reportlab[\w\s]*(?:generated|pdf)?[^.]*\.?", "", text)
+
         # Clean up multiple newlines / spaces left by removals
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = re.sub(r'  +', ' ', text)
-        
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"  +", " ", text)
+
         return text.strip()
-    
+
     def generate(
         self,
         query: str,
@@ -221,10 +231,10 @@ class LlamaGenerator:
                 success=True,
                 model_used=self.model_name,
             )
-        
+
         if not self._is_loaded:
             self.load_model(show_progress=False)
-        
+
         # Skip empty chunks
         valid_chunks = [c for c in chunks if c.get("chunk_text", "").strip()]
         if not valid_chunks:
@@ -234,7 +244,7 @@ class LlamaGenerator:
                 error="All chunks have empty text",
                 model_used=self.model_name,
             )
-        
+
         # Guard: if ALL chunks are very short (<50 chars), they likely contain
         # only metadata/headers.  Return them directly instead of hallucinating.
         if all(len(c.get("chunk_text", "").strip()) < 50 for c in valid_chunks):
@@ -246,11 +256,11 @@ class LlamaGenerator:
                 success=True,
                 model_used=self.model_name,
             )
-        
+
         context = format_context_for_generation(
             valid_chunks, include_source=include_sources, max_chunks=5
         )
-        
+
         system_message = """You are a factual Q&A assistant. Answer ONLY from the provided context.
 STRICT RULES:
 1. Use ONLY facts stated in the context below — nothing else.
@@ -268,33 +278,35 @@ STRICT RULES:
 QUESTION: {query}
 
 Answer the question using ONLY the context above. Use inline [1], [2] citations:"""
-        
+
         messages = [
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ]
-        
+
         try:
             if self.use_local:
                 raw_text = self._generate_local(messages, max_new_tokens, temperature)
             else:
                 raw_text = self._call_api(messages, max_new_tokens, temperature)
-            
+
             # Post-process to remove hallucinations
             cleaned_text = self._clean_response(raw_text)
-            
+
             citations = []
             for i, chunk in enumerate(valid_chunks[:5]):
-                citations.append(Citation(
-                    citation_id=i + 1,
-                    chunk_id=chunk.get("chunk_id", f"chunk_{i}"),
-                    source_path=chunk.get("source_path", "unknown"),
-                    chunk_text=chunk.get("chunk_text", "")[:200],
-                    start_offset=chunk.get("start_offset", 0),
-                    end_offset=chunk.get("end_offset", 0),
-                    relevance_score=chunk.get("score", 0.0),
-                ))
-            
+                citations.append(
+                    Citation(
+                        citation_id=i + 1,
+                        chunk_id=chunk.get("chunk_id", f"chunk_{i}"),
+                        source_path=chunk.get("source_path", "unknown"),
+                        chunk_text=chunk.get("chunk_text", "")[:200],
+                        start_offset=chunk.get("start_offset", 0),
+                        end_offset=chunk.get("end_offset", 0),
+                        relevance_score=chunk.get("score", 0.0),
+                    )
+                )
+
             return GenerationResult(
                 answer=cleaned_text,
                 citations=citations,
@@ -302,7 +314,7 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
                 model_used=self.model_name,
                 success=True,
             )
-            
+
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             return GenerationResult(

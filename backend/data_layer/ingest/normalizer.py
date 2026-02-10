@@ -1,7 +1,7 @@
 """Normalize and preprocess extracted text"""
 
 import re
-from typing import Dict, Optional
+from typing import Dict
 
 NORMALIZATION_VERSION = "rag_v1"
 
@@ -106,17 +106,6 @@ class NormalizationProfiles:
 
     @staticmethod
     def rag_ingestion():
-        """
-        Fixed policy for RAG ingestion - preserves semantic content while cleaning.
-
-        This is the ONLY profile that should be used for ingesting documents into
-        a RAG system. It:
-        - Preserves case (important for named entities)
-        - Replaces URLs/emails with placeholders (preserves context)
-        - Normalizes newlines (preserves paragraph structure)
-        - Removes extra whitespace
-        - Does NOT remove punctuation, numbers, or special chars
-        """
         return TextNormalizer(
             lowercase=False,
             remove_extra_whitespace=True,
@@ -131,7 +120,6 @@ class NormalizationProfiles:
 
     @staticmethod
     def minimal():
-        """Minimal cleaning - just trim whitespace (for custom pipelines)"""
         return TextNormalizer(
             lowercase=False,
             remove_extra_whitespace=True,
@@ -166,7 +154,6 @@ if __name__ == "__main__":
         print(f"Text length: {len(text)} characters")
         print(f"Preview: {text[:200]}...")
 
-    # Example showing placeholder replacements
     sample_text = (
         "Contact us at support@example.com or visit https://example.com.\n\n"
         "Our office is at 123 Main St. Price: $99.99\n"

@@ -9,11 +9,9 @@ class FileLoader:
         self.allowed_extensions = {".doc", ".docx", ".txt", ".pdf"}
 
     def _is_directory(self, path: str) -> bool:
-        """Check if the given path is a directory"""
         return os.path.isdir(path)
 
     def _get_file_category(self, file_path: str) -> str:
-        """Determine the category of a file based on its extension"""
         extension = Path(file_path).suffix.lower()
 
         if extension in {".doc", ".docx"}:
@@ -27,7 +25,6 @@ class FileLoader:
     def _scan_directory(
         self, directory: Path, loaded_files: Dict[str, List[Path]]
     ) -> None:
-        """Recursively scan directory and categorize files"""
         try:
             for item in os.listdir(directory):
                 item_path = os.path.join(directory, item)

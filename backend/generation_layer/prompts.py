@@ -1,7 +1,3 @@
-"""
-Prompt templates for answer generation.
-"""
-
 SYSTEM_PROMPTS = {
     "answer_with_citations": """You are a helpful assistant that answers questions based on provided context.
 
@@ -20,14 +16,12 @@ CONTEXT CHUNKS:
 USER QUESTION: {query}
 
 Provide your answer with inline citations:""",
-
     "query_reformulation": """Given the following query that didn't retrieve relevant results, 
 generate a reformulated query that might work better.
 
 Original query: {query}
 
 Provide only the reformulated query, nothing else:""",
-
     "relevance_check": """Determine if the following text chunk is relevant to the user's query.
 
 Query: {query}
@@ -41,36 +35,39 @@ or
 NOT_RELEVANT: <confidence 0-100>""",
 }
 
-def format_context_for_generation(chunks: list, include_source: bool = True, max_chunks: int = 5) -> str:
+
+def format_context_for_generation(
+    chunks: list, include_source: bool = True, max_chunks: int = 5
+) -> str:
     """
     Format chunks into a context string for LLM generation.
-    
+
     Args:
         chunks: List of chunk dictionaries
         include_source: Whether to include source file paths
         max_chunks: Maximum number of chunks to include
-        
+
     Returns:
         Formatted context string with citation markers
     """
     formatted_parts = []
-    
+
     for i, chunk in enumerate(chunks[:max_chunks], 1):
         text = chunk.get("chunk_text", chunk.get("text", "")).strip()
-        
+
         # Skip empty chunks or error markers
         if not text or (text.startswith("[") and text.endswith("]")):
             continue
-        
+
         # Truncate very long chunks to keep context manageable
         if len(text) > 1000:
             text = text[:1000] + "..."
-        
+
         source = chunk.get("source_path", "unknown")
         if include_source:
             source_name = source.split("/")[-1] if "/" in source else source
             formatted_parts.append(f"[{i}] (Source: {source_name})\n{text}")
         else:
             formatted_parts.append(f"[{i}]\n{text}")
-    
+
     return "\n\n---\n\n".join(formatted_parts)

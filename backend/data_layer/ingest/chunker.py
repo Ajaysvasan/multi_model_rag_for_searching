@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 CHUNK_VERSION = "chunk_v1"
+TOKENS_PER_WORD: float = 0.75
 
 
 @dataclass(frozen=True)
@@ -55,27 +56,27 @@ class TextChunker:
             # If a single paragraph is too large, force split by sentences
             if tokens > self.max_tokens:
                 # Split paragraph into sentences with proper offset tracking
-                sentence_pattern = re.compile(r'(?<=[.!?])\s+')
+                sentence_pattern = re.compile(r"(?<=[.!?])\s+")
                 sentences = sentence_pattern.split(para_text)
-                
+
                 # Track position within the paragraph
                 sent_cursor = 0
                 for sent in sentences:
                     if not sent.strip():
                         sent_cursor += len(sent)
                         continue
-                    
+
                     # Find the actual position of this sentence in para_text
                     sent_start_in_para = para_text.find(sent, sent_cursor)
                     if sent_start_in_para == -1:
                         sent_start_in_para = sent_cursor
-                    
+
                     sent_end_in_para = sent_start_in_para + len(sent)
-                    
+
                     # Calculate absolute offsets (paragraph start + sentence offset)
                     abs_start = start + sent_start_in_para
                     abs_end = start + sent_end_in_para
-                    
+
                     chunks.append(
                         self._emit_chunk(
                             [(sent, abs_start, abs_end)],
@@ -90,7 +91,7 @@ class TextChunker:
                     )
                     chunk_index += 1
                     sent_cursor = sent_end_in_para
-                    
+
                 i += 1
                 para_index += 1
                 continue
@@ -102,18 +103,12 @@ class TextChunker:
                 i += 1
                 para_index += 1
             else:
-                # --- FIX START ---
-                # If current_paras is empty, it means this SINGLE paragraph is > target_tokens
-                # but < max_tokens. We MUST accept it to avoid an infinite loop or crash.
                 if not current_paras:
                     current_paras.append((para_text, start, end))
                     current_tokens += tokens
                     i += 1
                     para_index += 1
                     continue
-                # --- FIX END ---
-
-                # Emit what we have so far
                 chunks.append(
                     self._emit_chunk(
                         current_paras,
@@ -188,9 +183,11 @@ class TextChunker:
             normalization_version=normalization_version,
             chunk_version=self.chunk_version,
         )
-        
+
         # Extract just the hash ID (first element of tuple)
-        chunk_id = chunk_id_tuple[0] if isinstance(chunk_id_tuple, tuple) else chunk_id_tuple
+        chunk_id = (
+            chunk_id_tuple[0] if isinstance(chunk_id_tuple, tuple) else chunk_id_tuple
+        )
 
         return Chunk(
             chunk_id=chunk_id,
@@ -206,10 +203,6 @@ class TextChunker:
 
 
 def split_paragraphs(text: str) -> List[Tuple[str, int, int]]:
-    """
-    Splits text into paragraphs while preserving character offsets.
-    Returns: List of (paragraph_text, start_char, end_char)
-    """
     paragraphs = []
     cursor = 0
 
@@ -250,4 +243,4 @@ def generate_chunk_id(
 
 def estimate_tokens(text: str) -> int:
     # Rough but stable: ~0.75 tokens per word
-    return int(len(text.split()) * 0.75)
+    return int(len(text.split()) * TOKENS_PER_WORD)

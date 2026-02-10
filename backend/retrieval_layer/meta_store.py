@@ -1,4 +1,3 @@
-# metadata_store.py
 from typing import Any, Dict, List
 
 
