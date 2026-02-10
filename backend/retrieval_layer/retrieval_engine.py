@@ -246,6 +246,9 @@ class RetrievalEngine:
         key = QueryRouter.build_topic_key(query)
         source = "ann"
         
+        # Embed query ONCE — reused for history, validation, lightweight reranking
+        query_vec = self._embed_query(query)
+        
         # 1) Try cache first
         state = self.cache.lookup(key)
         if state is not None:
@@ -253,10 +256,7 @@ class RetrievalEngine:
             source = "cache"
             chunk_ids = state.cached_chunk_ids
         else:
-            # 2) Embed query for history + ANN
-            query_vec = self._embed_query(query)
-            
-            # 3) Try history
+            # 2) Try history
             if self.history_enabled:
                 reused = self.history.find_similar(query_vec)
                 if reused is not None:
@@ -264,52 +264,61 @@ class RetrievalEngine:
                     source = "history"
                     chunk_ids = reused
                 else:
-                    # 4) ANN fallback
+                    # 3) ANN fallback
                     logger.info("ANN FALLBACK")
-                    # Fetch more candidates for reranking
                     chunk_ids = self._ann_search(query_vec, k=self.ann_top_k * 2)
             else:
                 chunk_ids = self._ann_search(query_vec, k=self.ann_top_k * 2)
         
-        # 5) Get metadata and text for chunks
+        # 4) Get metadata and text for chunks
         chunks_with_text = self._get_chunks_with_text(chunk_ids)
         
-        # 6) Rerank if available
+        # 5) Rerank — ALL paths, not just ANN
         reranked = False
-        if self.reranker and source == "ann":
+        if chunks_with_text:
             try:
-                rerank_results = self.reranker.rerank(query, chunks_with_text, text_key="chunk_text")
-                chunks_with_text = [r.metadata for r in rerank_results]
+                if source == "ann" and self.reranker:
+                    # Full cross-encoder reranking for fresh ANN results
+                    rerank_results = self.reranker.rerank(query, chunks_with_text, text_key="chunk_text")
+                    chunks_with_text = [r.metadata for r in rerank_results]
+                    reranked = True
+                    logger.info(f"Cross-encoder reranked to {len(chunks_with_text)} chunks")
+                else:
+                    # Lightweight bi-encoder reranking for cache/history hits
+                    from reranking.reranker import LightweightReranker
+                    light = LightweightReranker(
+                        embedding_model=self.embedding_model,
+                        top_k=self.ann_top_k,
+                    )
+                    chunks_with_text = light.rerank(query_vec, chunks_with_text)
+                    reranked = True
+                    logger.info(f"Lightweight reranked to {len(chunks_with_text)} chunks")
                 
-                # Update chunk_ids to reranked order
                 chunk_ids = [c["chunk_id"] for c in chunks_with_text]
-                reranked = True
-                logger.info(f"Reranked to {len(chunk_ids)} chunks")
             except Exception as e:
                 logger.warning(f"Reranking failed: {e}")
         
-        # 7) Validate if available
+        # 6) Validate — ALL paths, not just ANN
         validated = False
         validation_retries = 0
-        if self.validator and source == "ann":
+        if self.validator and chunks_with_text:
             try:
                 result, retries = self.validator.validate_with_retry(
                     query,
                     retrieval_fn=lambda q: self._retrieve_fresh(q),
                     initial_chunks=chunks_with_text,
-                    query_embedding=self._embed_query(query),
+                    query_embedding=query_vec,
                 )
                 chunks_with_text = result.validated_chunks
                 chunk_ids = [c["chunk_id"] for c in chunks_with_text]
                 validated = True
                 validation_retries = retries
-                logger.info(f"Validation complete: {len(chunk_ids)} valid chunks, {retries} retries")
+                logger.info(f"Validation: {len(chunk_ids)} valid chunks, {retries} retries")
             except Exception as e:
                 logger.warning(f"Validation failed: {e}")
         
-        # 8) Update cache + history with final results
-        if chunk_ids and source == "ann":
-            query_vec = self._embed_query(query)
+        # 7) Update cache + history with final (reranked/validated) results
+        if chunk_ids:
             self.cache.insert_new(key, cached_chunk_ids=chunk_ids)
             self.history.add_or_update(key, query_vec, chunk_ids)
         
@@ -422,32 +431,22 @@ class RetrievalEngine:
         
         metadata = self.metadata_store.get_by_ids(chunk_ids)
         
-        # Check each chunk for text - prefer DB stored text, fallback to file
+        # Check each chunk for text from DB. Do NOT fall back to reading
+        # source files — offsets refer to normalised text, not raw PDFs.
         for meta in metadata:
-            # First, check if we have text stored in DB
-            if meta.get("chunk_text"):
+            if meta.get("chunk_text", "").strip():
                 continue  # Already have text from database
             
-            # Fallback: try to load from source file (for old ingestions)
-            try:
-                source_path = meta.get("source_path")
-                start_offset = meta.get("start_offset", 0)
-                end_offset = meta.get("end_offset", 0)
-                
-                if source_path and os.path.exists(source_path):
-                    with open(source_path, "r", encoding="utf-8", errors="replace") as f:
-                        content = f.read()
-                        if start_offset < len(content) and end_offset <= len(content):
-                            meta["chunk_text"] = content[start_offset:end_offset]
-                        else:
-                            meta["chunk_text"] = f"[Offset out of range for {source_path}]"
-                else:
-                    meta["chunk_text"] = f"[Source file not found: {source_path}]"
-            except Exception as e:
-                logger.warning(f"Could not load chunk text: {e}")
-                meta["chunk_text"] = "[Text unavailable]"
+            # Text missing — flag clearly so the LLM doesn't hallucinate
+            source_path = meta.get("source_path", "unknown")
+            logger.warning(
+                f"Chunk {meta.get('chunk_id', '?')[:16]} has no stored text. "
+                f"Run 'python backfill_chunks.py' or re-ingest {source_path}"
+            )
+            meta["chunk_text"] = ""
         
-        return metadata
+        # Filter out chunks with no usable text
+        return [m for m in metadata if m.get("chunk_text", "").strip()]
     
     def _retrieve_fresh(self, query: str) -> List[dict]:
         """Fresh ANN retrieval for validation retry."""

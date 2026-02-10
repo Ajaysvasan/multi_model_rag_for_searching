@@ -130,24 +130,24 @@ class ChunkMetadataStore:
         cur = self._conn.execute(sql, chunk_ids)
         rows = cur.fetchall()
 
-        results = []
+        # Build a lookup dict so we can return results in the original chunk_ids order
+        lookup = {}
         for row in rows:
-            results.append(
-                {
-                    "chunk_id": row[0],
-                    "document_id": row[1],
-                    "source_path": row[2],
-                    "modality": row[3],
-                    "chunk_index": row[4],
-                    "start_offset": row[5],
-                    "end_offset": row[6],
-                    "chunk_version": row[7],
-                    "normalization_version": row[8],
-                    "chunk_text": row[9] if len(row) > 9 and row[9] else "",
-                }
-            )
+            lookup[row[0]] = {
+                "chunk_id": row[0],
+                "document_id": row[1],
+                "source_path": row[2],
+                "modality": row[3],
+                "chunk_index": row[4],
+                "start_offset": row[5],
+                "end_offset": row[6],
+                "chunk_version": row[7],
+                "normalization_version": row[8],
+                "chunk_text": row[9] if len(row) > 9 and row[9] else "",
+            }
 
-        return results
+        # Preserve input order (important for reranking)
+        return [lookup[cid] for cid in chunk_ids if cid in lookup]
 
     def count_chunks(self) -> int:
         cur = self._conn.execute("SELECT COUNT(*) FROM chunks;")

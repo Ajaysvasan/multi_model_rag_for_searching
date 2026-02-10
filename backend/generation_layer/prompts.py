@@ -41,14 +41,14 @@ or
 NOT_RELEVANT: <confidence 0-100>""",
 }
 
-def format_context_for_generation(chunks: list, include_source: bool = True, max_chunks: int = 3) -> str:
+def format_context_for_generation(chunks: list, include_source: bool = True, max_chunks: int = 5) -> str:
     """
     Format chunks into a context string for LLM generation.
     
     Args:
         chunks: List of chunk dictionaries
         include_source: Whether to include source file paths
-        max_chunks: Maximum number of chunks to include (for speed)
+        max_chunks: Maximum number of chunks to include
         
     Returns:
         Formatted context string with citation markers
@@ -58,13 +58,13 @@ def format_context_for_generation(chunks: list, include_source: bool = True, max
     for i, chunk in enumerate(chunks[:max_chunks], 1):
         text = chunk.get("chunk_text", chunk.get("text", "")).strip()
         
-        # Skip empty chunks
-        if not text or text.startswith("[") and text.endswith("]"):
+        # Skip empty chunks or error markers
+        if not text or (text.startswith("[") and text.endswith("]")):
             continue
         
         # Truncate very long chunks to keep context manageable
-        if len(text) > 800:
-            text = text[:800] + "..."
+        if len(text) > 1000:
+            text = text[:1000] + "..."
         
         source = chunk.get("source_path", "unknown")
         if include_source:

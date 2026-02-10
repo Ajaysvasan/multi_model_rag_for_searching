@@ -66,7 +66,7 @@ class RetrievalValidator:
             use_llm_verification: Whether to use LLM for final verification
         """
         self.embedding_model = embedding_model
-        self.min_similarity = min_similarity if min_similarity is not None else getattr(Config, 'MIN_RELEVANCE_SCORE', 0.3)
+        self.min_similarity = min_similarity if min_similarity is not None else getattr(Config, 'MIN_RELEVANCE_SCORE', 0.15)
         self.min_keyword_overlap = min_keyword_overlap if min_keyword_overlap is not None else 0.2
         self.max_retries = max_retries or getattr(Config, 'MAX_RETRIES', 2)
         self.use_llm_verification = use_llm_verification
@@ -110,23 +110,38 @@ class RetrievalValidator:
         # Extract query keywords for keyword overlap check
         query_keywords = self._extract_keywords(query)
         
-        for chunk in chunks:
-            chunk_text = chunk.get("chunk_text", chunk.get("text", ""))
+        # Short-query boost: when query has ≤2 keywords, embedding similarity
+        # is less discriminative, so we increase keyword weight
+        if len(query_keywords) <= 2:
+            kw_weight, emb_weight = 0.6, 0.4
+        else:
+            kw_weight, emb_weight = 0.4, 0.6
+        
+        # Batch-encode all chunk texts at once (major speedup vs per-chunk)
+        chunk_texts = [
+            c.get("chunk_text", c.get("text", "")) for c in chunks
+        ]
+        chunk_embeddings = None
+        if query_embedding is not None and self.embedding_model is not None:
+            chunk_embeddings = self.embedding_model.encode(
+                chunk_texts,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+        
+        for i, chunk in enumerate(chunks):
+            chunk_text = chunk_texts[i]
             
             # Strategy 1: Keyword overlap
             keyword_score = self._compute_keyword_overlap(query_keywords, chunk_text)
             
-            # Strategy 2: Embedding similarity (if available)
+            # Strategy 2: Embedding similarity (batch-computed)
             embedding_score = 0.5  # Default neutral score
-            if query_embedding is not None and self.embedding_model is not None:
-                chunk_embedding = self.embedding_model.encode(
-                    chunk_text,
-                    normalize_embeddings=True
-                )
-                embedding_score = float(np.dot(query_embedding, chunk_embedding))
+            if chunk_embeddings is not None:
+                embedding_score = float(np.dot(query_embedding, chunk_embeddings[i]))
             
-            # Combined score (weighted average)
-            combined_score = 0.4 * keyword_score + 0.6 * embedding_score
+            # Combined score (weighted average, short-query aware)
+            combined_score = kw_weight * keyword_score + emb_weight * embedding_score
             
             # Add score to chunk metadata
             chunk_with_score = {**chunk, "validation_score": combined_score}

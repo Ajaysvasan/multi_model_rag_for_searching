@@ -123,11 +123,15 @@ class LlamaGenerator:
         except ImportError:
             pass
         
+        # Detect CPU thread count for optimal performance
+        n_threads = os.cpu_count() or 4
+        
         self.model = Llama(
             model_path=str(model_path),
-            n_ctx=8192,         # Larger context window
+            n_ctx=4096,         # Sufficient for RAG (3-5 chunks ~2k tokens)
             n_gpu_layers=n_gpu_layers,
             n_batch=512,        # Faster prompt processing
+            n_threads=n_threads,
             verbose=False,
         )
         
@@ -135,7 +139,7 @@ class LlamaGenerator:
             logger.info("Model loaded successfully")
         self._is_loaded = True
     
-    def _call_api(self, messages: List[dict], max_new_tokens: int = 256, temperature: float = 0.7) -> str:
+    def _call_api(self, messages: List[dict], max_new_tokens: int = 200, temperature: float = 0.1) -> str:
         """Call HuggingFace Inference API."""
         import requests
         
@@ -161,13 +165,15 @@ class LlamaGenerator:
             return result["choices"][0]["message"]["content"]
         raise Exception(f"Unexpected API response: {result}")
     
-    def _generate_local(self, messages: List[dict], max_new_tokens: int = 256, temperature: float = 0.7) -> str:
+    def _generate_local(self, messages: List[dict], max_new_tokens: int = 200, temperature: float = 0.1) -> str:
         """Generate using local GGUF model via llama-cpp-python."""
         response = self.model.create_chat_completion(
             messages=messages,
             max_tokens=max_new_tokens,
             temperature=temperature,
             top_p=0.9,
+            top_k=40,
+            repeat_penalty=1.1,
         )
         
         return response["choices"][0]["message"]["content"]
@@ -175,17 +181,28 @@ class LlamaGenerator:
     @staticmethod
     def _clean_response(text: str) -> str:
         """Post-process to remove hallucinated references/URLs."""
-        # Remove any "References:" or "Sources:" sections the model generates
-        for marker in ["References:", "Sources:", "Bibliography:", "Works Cited:"]:
+        # Remove any generated reference sections
+        for marker in ["References:", "Sources:", "Bibliography:", "Works Cited:",
+                       "Citation:", "Citations:", "Further Reading:"]:
             idx = text.find(marker)
             if idx > 0:
                 text = text[:idx].rstrip()
         
         # Remove hallucinated URLs
-        text = re.sub(r'https?://\S+', '[link removed]', text)
+        text = re.sub(r'https?://\S+', '', text)
         
         # Remove hallucinated "Retrieved from" citations
         text = re.sub(r'Retrieved (?:from|on) .+?(?:\n|$)', '', text)
+        
+        # Remove fake academic citations like "(n.d.)" or "(2021)"
+        text = re.sub(r'\([a-zA-Z\s,&]+,?\s*(?:n\.d\.|\d{4})\)', '', text)
+        
+        # Remove ReportLab / PDF metadata mentions
+        text = re.sub(r'(?i)reportlab[\w\s]*(?:generated|pdf)?[^.]*\.?', '', text)
+        
+        # Clean up multiple newlines / spaces left by removals
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r'  +', ' ', text)
         
         return text.strip()
     
@@ -194,8 +211,8 @@ class LlamaGenerator:
         query: str,
         chunks: List[dict],
         include_sources: bool = True,
-        max_new_tokens: int = 256,
-        temperature: float = 0.7,
+        max_new_tokens: int = 200,
+        temperature: float = 0.1,
     ) -> GenerationResult:
         """Generate answer from retrieved chunks."""
         if not chunks:
@@ -208,7 +225,7 @@ class LlamaGenerator:
         if not self._is_loaded:
             self.load_model(show_progress=False)
         
-        # Limit to top 3 chunks for speed, skip empty ones
+        # Skip empty chunks
         valid_chunks = [c for c in chunks if c.get("chunk_text", "").strip()]
         if not valid_chunks:
             return GenerationResult(
@@ -218,25 +235,39 @@ class LlamaGenerator:
                 model_used=self.model_name,
             )
         
+        # Guard: if ALL chunks are very short (<50 chars), they likely contain
+        # only metadata/headers.  Return them directly instead of hallucinating.
+        if all(len(c.get("chunk_text", "").strip()) < 50 for c in valid_chunks):
+            bullets = "\n".join(
+                f"• {c.get('chunk_text', '').strip()}" for c in valid_chunks
+            )
+            return GenerationResult(
+                answer=f"The retrieved content is very brief:\n{bullets}",
+                success=True,
+                model_used=self.model_name,
+            )
+        
         context = format_context_for_generation(
-            valid_chunks, include_source=include_sources, max_chunks=3
+            valid_chunks, include_source=include_sources, max_chunks=5
         )
         
-        system_message = """You are a helpful assistant that answers questions based on provided context.
-RULES:
-1. ONLY use information from the provided context
-2. Cite sources using [1], [2], etc.
-3. If context is insufficient, say so clearly
-4. Be concise but thorough
-5. NEVER invent URLs, links, or references not in the context
-6. Do NOT add a References or Sources section"""
+        system_message = """You are a factual Q&A assistant. Answer ONLY from the provided context.
+STRICT RULES:
+1. Use ONLY facts stated in the context below — nothing else.
+2. Cite sources inline as [1], [2], etc.
+3. If the context lacks sufficient information, say: "The available sources do not contain enough information to answer this fully."
+4. Be concise. Do NOT pad your answer.
+5. NEVER invent or guess URLs, links, dates, statistics, or references.
+6. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.
+7. Do NOT add References, Sources, Bibliography, or Citation sections.
+8. Do NOT generate content beyond what the context provides."""
 
         user_message = f"""CONTEXT:
 {context}
 
 QUESTION: {query}
 
-Answer using ONLY the context above, with inline citations:"""
+Answer the question using ONLY the context above. Use inline [1], [2] citations:"""
         
         messages = [
             {"role": "system", "content": system_message},
@@ -253,7 +284,7 @@ Answer using ONLY the context above, with inline citations:"""
             cleaned_text = self._clean_response(raw_text)
             
             citations = []
-            for i, chunk in enumerate(valid_chunks[:3]):
+            for i, chunk in enumerate(valid_chunks[:5]):
                 citations.append(Citation(
                     citation_id=i + 1,
                     chunk_id=chunk.get("chunk_id", f"chunk_{i}"),

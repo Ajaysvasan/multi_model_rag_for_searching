@@ -28,12 +28,16 @@ class Config:
 
     CACHE_HISTORY_DB_PATH = Path("data/index/cache_history.db")
 
+    # History Configuration
+    HISTORY_MAX_AGE = 3600   # Seconds before a history entry expires (1 hour)
+    HISTORY_MAX_SIZE = 32    # Max entries kept per session
+
     # Reranking Configuration
     RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     RERANK_TOP_K = 5  # Number of results after reranking
     
     # Validation Configuration
-    MIN_RELEVANCE_SCORE = 0.3  # Minimum score for chunk to pass validation
+    MIN_RELEVANCE_SCORE = 0.15  # Lowered for short/single-word queries
     MAX_RETRIES = 2  # Max re-retrieval attempts on validation failure
     
     # Generation Configuration - Local GGUF Model (~4.4GB)

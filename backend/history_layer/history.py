@@ -25,12 +25,18 @@ class ConversationHistory:
     """
 
     def __init__(
-        self, max_size: int = 32, sim_threshold: float = 0.80, session_id: str = "", db_path: str = "data/index/cache_history.db"
+        self,
+        max_size: int = 32,
+        sim_threshold: float = 0.80,
+        session_id: str = "",
+        db_path: str = "data/index/cache_history.db",
+        max_age_seconds: int = 3600,
     ):
         self.max_size = max_size
         self.sim_threshold = sim_threshold
         self.session_id = session_id
         self.db_path = db_path
+        self.max_age_seconds = max_age_seconds
         self._entries: Deque[HistoryEntry] = deque(maxlen=max_size)
         
         # Initialize database and load existing history
@@ -155,6 +161,8 @@ class ConversationHistory:
         Return chunk_ids from the most recent semantically similar history entry,
         or None if no entry passes the similarity threshold.
         """
+        self._evict_stale()
+        
         if not self._entries:
             return None
 
@@ -179,6 +187,7 @@ class ConversationHistory:
         Add a new history entry. If an entry with the same topic_key exists,
         refresh it and move it to the most recent position.
         """
+        self._evict_stale()
         now = time.time()
         q = self._normalize(query_embedding)
 
@@ -215,8 +224,29 @@ class ConversationHistory:
         self._entries.clear()
         self._clear_session_db()
 
+    def clear_session(self) -> None:
+        """Public alias — clear history for this session."""
+        self.clear()
+
     def size(self) -> int:
         return len(self._entries)
+
+    def _evict_stale(self) -> None:
+        """Remove entries older than max_age_seconds from deque and DB."""
+        cutoff = time.time() - self.max_age_seconds
+        stale = [e for e in self._entries if e.timestamp < cutoff]
+        if not stale:
+            return
+        for entry in stale:
+            self._entries.remove(entry)
+        # Bulk-delete from DB
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "DELETE FROM history_entries WHERE session_id = ? AND timestamp < ?",
+            (self.session_id, cutoff),
+        )
+        conn.commit()
+        conn.close()
 
     @staticmethod
     def _normalize(vec: np.ndarray) -> np.ndarray:
