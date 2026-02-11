@@ -1,57 +1,75 @@
+import os
+import sys
+import hashlib
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
 from image_processing import ImagePreprocessor
 from image_captioning import ImageCaptioner
 from ocr_processing import OCRProcessor
-from visual_embedding import VisualEmbedder
 from metadata_extracter import MetadataExtractor
 
 
-# file_directory = input("Enter a valid images file directory: ")
-# Input will be coming from another function which is linked with frontend.. 
-
-def ingest_image(file_directory: str):
-
-    # Initialize processors
-    image_processor = ImagePreprocessor()
+def ingest_images(file_paths: list) -> list:
+    preprocessor = ImagePreprocessor()
     captioner = ImageCaptioner()
-    ocr = OCRProcessor()
-    visual_embedder = VisualEmbedder()
     metadata_extractor = MetadataExtractor()
 
-    results = []
+    try:
+        ocr = OCRProcessor()
+    except Exception:
+        ocr = None
 
-    # Loading & preprocessing images
-    preprocessed_images = image_processor.process_directory(file_directory)
+    records = []
 
-    for img, image_path in preprocessed_images:
+    for image_path in file_paths:
+        try:
+            img = preprocessor.preprocess_image(image_path)
+            caption = captioner.generate_caption(img)
 
-        # OCR processing
+            ocr_text = ""
+            if ocr is not None:
+                try:
+                    ocr_result = ocr.extract_text(img)
+                    ocr_text = ocr_result.get("text", "")
+                except Exception:
+                    pass
 
-        ocr_result = ocr.extract_text(img)
-        has_text = bool(ocr_result["text"])
+            has_text = bool(ocr_text.strip())
+            image_type = "screenshot" if has_text else "photo"
 
-        # simple image-type detector
-        image_type = "screenshot" if has_text else "photo"
+            chunk_text = f"[Image: {caption}]"
+            if ocr_text.strip():
+                chunk_text += f"\n{ocr_text.strip()}"
 
-        # Caption generator function for generating caption for the given image
-        caption = captioner.generate_caption(img)
+            abs_path = str(os.path.abspath(image_path))
+            doc_id = hashlib.sha256(abs_path.encode()).hexdigest()
+            chunk_id = hashlib.sha256(f"{doc_id}|image|0".encode()).hexdigest()[:16]
 
-        # Visual embedding  function for the given image
-        image_embedding = visual_embedder.generate_embedding(img)
+            metadata = metadata_extractor.extract_metadata(
+                image_path=image_path,
+                image=img,
+                has_text=has_text,
+                image_type=image_type,
+                caption=caption,
+            )
 
-        # Metadata extraction function for extraction of meta data from the image
-        metadata = metadata_extractor.extract_metadata(
-            image_path=image_path,
-            image=img,
-            has_text=has_text,
-            image_type=image_type,
-            caption=caption
-        )
+            records.append({
+                "chunk_id": chunk_id,
+                "document_id": doc_id,
+                "source_path": abs_path,
+                "modality": "image",
+                "chunk_index": 0,
+                "start_offset": 0,
+                "end_offset": len(chunk_text),
+                "chunk_text": chunk_text,
+                "metadata": metadata,
+            })
 
-        record = {
-            "embedding": image_embedding,
-            "metadata": metadata,
-            "ocr_text": ocr_result["text"]
-        }
+            print(f"  [image] {os.path.basename(image_path)}: \"{caption[:80]}\"")
 
-        results.append(record)
-    return results
+        except Exception as e:
+            print(f"  [image] SKIP {image_path}: {e}")
+
+    return records

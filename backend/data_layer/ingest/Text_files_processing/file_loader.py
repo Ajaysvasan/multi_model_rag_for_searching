@@ -6,20 +6,27 @@ from typing import Dict, List
 class FileLoader:
     def __init__(self, folder_path: Path) -> None:
         self.folder_path = folder_path
-        self.allowed_extensions = {".doc", ".docx", ".txt", ".pdf"}
+        self.allowed_extensions = {
+            ".doc", ".docx", ".txt", ".pdf",
+            ".jpg", ".jpeg", ".png",
+            ".mp3", ".wav", ".m4a", ".flac", ".ogg",
+        }
 
     def _is_directory(self, path: str) -> bool:
         return os.path.isdir(path)
 
     def _get_file_category(self, file_path: str) -> str:
         extension = Path(file_path).suffix.lower()
-
         if extension in {".doc", ".docx"}:
             return "docs"
         elif extension == ".txt":
             return "txt"
         elif extension == ".pdf":
             return "pdf"
+        elif extension in {".jpg", ".jpeg", ".png"}:
+            return "image"
+        elif extension in {".mp3", ".wav", ".m4a", ".flac", ".ogg"}:
+            return "audio"
         return None
 
     def _scan_directory(
@@ -53,7 +60,7 @@ class FileLoader:
             'txt': [file_one_path, ...]
         }
         """
-        loaded_files = {"docs": [], "txt": [], "pdf": []}
+        loaded_files = {"docs": [], "txt": [], "pdf": [], "image": [], "audio": []}
 
         if not self.folder_path:
             print("Warning: No folder path provided")

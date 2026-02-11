@@ -4,7 +4,6 @@ from pathlib import Path
 
 
 class Config:
-    DATASET_PATH = Path("data/datasets")
     INDEX_PATH = Path("data/index/faiss_hnsw.index")
 
     NORMALIZATION_VERSION = "rag_v1"

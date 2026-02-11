@@ -222,6 +222,7 @@ class LlamaGenerator:
         include_sources: bool = True,
         max_new_tokens: int = 200,
         temperature: float = 0.1,
+        conversation_context: List[dict] = None,
     ) -> GenerationResult:
         """Generate answer from retrieved chunks."""
         if not chunks:
@@ -277,6 +278,15 @@ STRICT RULES:
 QUESTION: {query}
 
 Answer the question using ONLY the context above. Use inline [1], [2] citations:"""
+
+        if conversation_context:
+            history_lines = []
+            for turn in conversation_context[-4:]:
+                role = turn.get("role", "user").capitalize()
+                content = turn.get("content", "")[:200]
+                history_lines.append(f"{role}: {content}")
+            history_str = "\n".join(history_lines)
+            user_message = f"CONVERSATION HISTORY:\n{history_str}\n\n{user_message}"
 
         messages = [
             {"role": "system", "content": system_message},

@@ -1,39 +1,38 @@
+import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
 from audio_to_text import WhisperAudioToText
-    
-def ingest_audio(audio_directory: str):
 
-    # We must download "ffmpeg" ---> winget install ffmpeg ---> For windows
-    # This is must be written in bat file.
 
-    # Initialize converter (uses cached model - offline)
-    converter = WhisperAudioToText(
-        # This model must be downloaded...
-        model_name='small',
-        model_dir='./models/whisper'
-    )
-
-    # Remove quotes if user wrapped the path in quotes
-    audio_directory = audio_directory.strip('"').strip("'")
-
-    if audio_directory:
-        # Process all audio files in the directory
-        results = converter.process_directory(
-            directory=audio_directory,
-            language='en',  # or None for auto-detect
-            recursive=True  # Set to False to skip subdirectories
+def ingest_audio(file_paths: list, model_name="small", model_dir="./models/whisper") -> dict:
+    try:
+        converter = WhisperAudioToText(
+            model_name=model_name,
+            model_dir=model_dir,
         )
-        
-        for idx, result in enumerate(results, 1):
-            
-            if 'error' in result:
-                print(f" Error: {result['error']}")
-            else:
-                record = {idx : results}
+    except Exception as e:
+        print(f"  [audio] Whisper failed to load: {e}")
+        return {}
 
-    return record
+    transcripts = {}
 
-# Both the line will be called from frontend or main backend for processing the audio directory and audio files
+    for audio_path in file_paths:
+        try:
+            result = converter.convert_to_text(audio_path)
+            text = result.get("text", "").strip()
 
-# audio_directory = input("\nEnter the directory path containing audio files: ").strip()
-# ingest = ingest_audio(audio_directory)
-# print(ingest)
+            if not text:
+                print(f"  [audio] SKIP {audio_path}: empty transcript")
+                continue
+
+            abs_path = str(os.path.abspath(audio_path))
+            transcripts[abs_path] = text
+            print(f"  [audio] {os.path.basename(audio_path)}: {len(text)} chars")
+
+        except Exception as e:
+            print(f"  [audio] SKIP {audio_path}: {e}")
+
+    return transcripts

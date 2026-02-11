@@ -2,7 +2,7 @@ import os
 import sys
 import time
 
-from backend.config import Config
+from config import Config
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
