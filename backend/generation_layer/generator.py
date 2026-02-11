@@ -51,14 +51,13 @@ class GenerationResult:
 class LlamaGenerator:
 
     DEFAULT_MODEL = Config.DEFAULT_MODEL
-    # TODO : Fix the API not found issue
-    API_URL = Config.API_URL
+    API_URL = "https://router.huggingface.co/models"
 
     def __init__(
         self,
         model_name: str = "",
         models_dir: str = "",
-        use_local: bool = False,
+        use_local: bool = None,
         api_token: str = "",
     ):
         self.model_name = model_name or getattr(
