@@ -13,7 +13,6 @@ sys.path.append(parent_dir)
 
 from cache_layer.cache import TopicCacheManager
 from cache_layer.TopicState import TopicKey
-from config import Config
 from data_layer.chunkstore.Chunkstore import ChunkMetadataStore
 from data_layer.ingest.storage.hnsw import HNSWIndex
 from history_layer.history import ConversationHistory
@@ -83,13 +82,50 @@ class QueryRouter:
         )
 
 
-class RetrievalEngine:
+class QueryProcessing:
     FILLER_PATTERNS = [
         r"^(i\s+want|i\s+need|can\s+you|please)\s+(find|get|give|show|search|look\s+for|retrieve)\s+(me\s+)?\s*(a\s+|the\s+|some\s+)?(file|document|info|information|data|content|text|article)s?\s*(which|that|about|on|regarding|related\s+to|with\s+information\s+(about|on))?\s*",
         r"^(find|get|give|show|search|look\s+for|retrieve)\s+(me\s+)?\s*(a\s+|the\s+|some\s+)?(file|document|info|information|data|content|text|article)s?\s*(which|that|about|on|regarding|related\s+to|with\s+information\s+(about|on))?\s*",
         r"^(tell\s+me|what\s+is|what\s+are|explain)\s+(about|regarding)?\s*",
     ]
 
+    def __init__(self, conversation_memory):
+        self.conversation_memory = conversation_memory
+
+    def _extract_query_intent(self, query: str) -> str:
+        cleaned = query.strip()
+        for pattern in self.FILLER_PATTERNS:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+        if len(cleaned) < 3:
+            return query
+        return cleaned
+
+    def _expand_with_context(self, query: str, session_id: str) -> str:
+        if not session_id or not self.conversation_memory:
+            return query
+        recent = self.conversation_memory.get_recent_queries(session_id, max_queries=3)
+        if not recent or len(recent) <= 1:
+            return query
+        prior = recent[:-1]
+        short_words = len(query.split()) <= 4
+        is_followup = any(
+            w in query.lower()
+            for w in ["more", "also", "else", "that", "this", "it", "they", "same"]
+        )
+        if short_words or is_followup:
+            context = " | ".join(prior[-2:])
+            expanded = f"{context} {query}"
+            logger.info(f"Query expanded: '{query}' -> '{expanded}'")
+            return expanded
+        return query
+
+    def preprocess_query(self, query: str, session_id: str = "") -> str:
+        expanded = self._expand_with_context(query, session_id)
+        intent = self._extract_query_intent(expanded)
+        return intent
+
+
+class RetrievalEngine(QueryProcessing):
     def __init__(
         self,
         cache: TopicCacheManager,
@@ -286,9 +322,9 @@ class RetrievalEngine:
             validation_retries=validation_retries,
         )
 
-    def retrieve_and_generate(self, query: str, session_id: str = "") -> RAGResponse:
-        effective_query = self._expand_with_context(query, session_id)
-        intent_query = self._extract_query_intent(effective_query)
+    def retrieve_and_generate(
+        self, query, intent_query: str, session_id: str = ""
+    ) -> RAGResponse:
 
         retrieval_result = self.retrieve_enhanced(intent_query)
 
@@ -323,6 +359,8 @@ class RetrievalEngine:
             )
 
         try:
+
+            effective_query = self._expand_with_context(query, session_id)
             gen_result = self.generator.generate(
                 query=effective_query,
                 chunks=retrieval_result.chunks_with_metadata,
@@ -364,14 +402,6 @@ class RetrievalEngine:
                 error=str(e),
             )
 
-    def _extract_query_intent(self, query: str) -> str:
-        cleaned = query.strip()
-        for pattern in self.FILLER_PATTERNS:
-            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
-        if len(cleaned) < 3:
-            return query
-        return cleaned
-
     def _expand_with_context(self, query: str, session_id: str) -> str:
         if not session_id or not self.conversation_memory:
             return query
@@ -381,7 +411,8 @@ class RetrievalEngine:
         prior = recent[:-1]
         short_words = len(query.split()) <= 4
         is_followup = any(
-            w in query.lower() for w in ["more", "also", "else", "that", "this", "it", "they", "same"]
+            w in query.lower()
+            for w in ["more", "also", "else", "that", "this", "it", "they", "same"]
         )
         if short_words or is_followup:
             context = " | ".join(prior[-2:])

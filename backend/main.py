@@ -25,14 +25,16 @@ def main():
             from ingestion_menu import collect_ingestion_config
 
             ingestion_config = collect_ingestion_config()
-            engine, metadata_store, conv_memory, session_id = initialize_system(
-                ingestion_config=ingestion_config
+            engine, metadata_store, conv_memory, session_id, query_preprocessor = (
+                initialize_system(ingestion_config=ingestion_config)
             )
         else:
             # Chat — only ingest if no index exists (handled inside initialize_system)
-            engine, metadata_store, conv_memory, session_id = initialize_system()
+            engine, metadata_store, conv_memory, session_id, query_preprocessor = (
+                initialize_system()
+            )
 
-        run_query_loop(engine, conv_memory, session_id)
+        run_query_loop(engine, conv_memory, session_id, query_preprocessor)
         metadata_store.close()
         conv_memory.close()
     except KeyboardInterrupt:

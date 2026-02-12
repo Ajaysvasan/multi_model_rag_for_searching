@@ -10,7 +10,7 @@ from data_layer.ingest.storage.conversation_memory import ConversationMemory
 from data_layer.ingest.storage.hnsw import HNSWIndex
 from history_layer.history import ConversationHistory
 from ingestion_pipeline import check_ingestion_exists, run_ingestion
-from retrieval_layer.retrieval_engine import RetrievalEngine
+from retrieval_layer.retrieval_engine import QueryProcessing, RetrievalEngine
 
 INDEX_PATH = Config.INDEX_PATH
 METADATA_DB_PATH = Config.METADATA_DB_PATH
@@ -65,6 +65,8 @@ def initialize_system(ingestion_config=None):
         db_path=str(Config.CACHE_HISTORY_DB_PATH),
         max_turns=10,
     )
+    print(f"Initializing query pre processiong")
+    query_preprocessor = QueryProcessing(conv_memory)
     print(
         f"       ✓ Cache, history, and conversation memory ready (session={session_id})"
     )
@@ -103,4 +105,4 @@ def initialize_system(ingestion_config=None):
     print("SYSTEM READY")
     print("=" * 60)
 
-    return engine, metadata_store, conv_memory, session_id
+    return engine, metadata_store, conv_memory, session_id, query_preprocessor

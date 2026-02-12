@@ -2,7 +2,7 @@ import os
 import uuid
 
 
-def run_query_loop(engine, conv_memory, session_id):
+def run_query_loop(engine, conv_memory, session_id, query_preprocessor):
     print()
     print("Type your question to get an answer with sources.")
     print(
@@ -25,10 +25,12 @@ def run_query_loop(engine, conv_memory, session_id):
                 session_id = str(uuid.uuid4())[:8]
                 print(f"\nNew conversation started (session={session_id})\n")
                 continue
-
+            # I will not use this flag and will probably romove it
             if user_input.startswith("/retrieve "):
                 query = user_input[10:].strip()
-                results = engine.retrieve_with_metadata(query)
+                intent_query = query_preprocessor.preprocess_query(query)
+
+                results = engine.retrieve_with_metadata(intent_query)
                 if not results:
                     print("\nNo results found.\n")
                     continue
@@ -41,9 +43,13 @@ def run_query_loop(engine, conv_memory, session_id):
                 print()
             else:
                 query = user_input
+                # here is where the convo id is stored for each conversation
                 conv_memory.add_turn(session_id, "user", query)
+                intent_query = query_preprocessor.preprocess_query(query)
 
-                response = engine.retrieve_and_generate(query, session_id=session_id)
+                response = engine.retrieve_and_generate(
+                    query, intent_query, session_id=session_id
+                )
 
                 print(f"\nAssistant: {response.answer}")
 
