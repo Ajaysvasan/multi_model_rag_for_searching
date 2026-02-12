@@ -82,6 +82,10 @@ class QueryRouter:
         )
 
 
+# Making this separate class so that when using mmap in C++ the integration and the multi threading can be handles in a more modular way
+# Also this class can be extended in the future and also it introduces separation of concers and no GOD file concepts
+
+
 class QueryProcessing:
     FILLER_PATTERNS = [
         r"^(i\s+want|i\s+need|can\s+you|please)\s+(find|get|give|show|search|look\s+for|retrieve)\s+(me\s+)?\s*(a\s+|the\s+|some\s+)?(file|document|info|information|data|content|text|article)s?\s*(which|that|about|on|regarding|related\s+to|with\s+information\s+(about|on))?\s*",
