@@ -13,12 +13,7 @@ let mainWindow;
 let mockStorage = []; // Simulated database for chat sessions
 let documentStorage = []; // Simulated database for uploaded document metadata
 
-/**
- * Recursively gets all file paths from a directory.
- * @param {string} dirPath 
- * @param {string[]} arrayOfFiles 
- * @returns {string[]}
- */
+
 function getAllFiles(dirPath, arrayOfFiles) {
   const files = fs.readdirSync(dirPath);
 
@@ -36,15 +31,7 @@ function getAllFiles(dirPath, arrayOfFiles) {
   return arrayOfFiles;
 }
 
-/**
- * Shared logic for uploading documents or folders.
- * Used by both IPC handlers and native menu items.
- * 
- * RAG INTEGRATION NOTE:
- * This function handles the OS-level file selection. The 'filePaths' array
- * contains absolute paths to the selected files/folders. These paths should
- * be sent to your backend or RAG service for chunking and embedding.
- */
+
 async function performUpload(type = 'document') {
   let filters = [];
   let properties = ['openFile', 'multiSelections'];
@@ -117,7 +104,7 @@ async function performUpload(type = 'document') {
 }
 
 const createWindow = () => {
-  // Create the browser window.
+  
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
@@ -126,7 +113,7 @@ const createWindow = () => {
     },
   });
 
-  // and load the index.html of the app.
+  
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.on('context-menu', (e, props) => {
@@ -142,7 +129,7 @@ const createWindow = () => {
     ]).popup(mainWindow);
   });
 
-  // Open the DevTools.
+  
   mainWindow.webContents.openDevTools();
 };
 
@@ -151,27 +138,20 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-// --- IPC Handlers ---
-// These handlers catch requests from the Renderer process (UI) via the Preload bridge.
 
 app.whenReady().then(() => {
-  // Handle local resources
+  
   protocol.handle('local-resource', async (request) => {
     try {
       const url = new URL(request.url);
-      // On Windows, the path might be /C:/Users/... or C:/Users/...
+      
       let decodedPath = decodeURIComponent(url.pathname);
       
-      // If the pathname starts with / and then a drive letter (e.g., /C:/), remove the /
+      
       if (process.platform === 'win32' && /^\/[a-zA-Z]:/.test(decodedPath)) {
         decodedPath = decodedPath.slice(1);
       }
       
-      // Also handle the case where host + pathname is the full path
-      // (Depends on how the URL was constructed)
       let finalPath = decodedPath;
       if (url.host && url.host !== '' && process.platform === 'win32') {
         finalPath = path.join(url.host + ':', decodedPath);
@@ -308,116 +288,14 @@ app.whenReady().then(() => {
     return path.join(__dirname, 'optic.jpg');
   });
 
-  // ========================================================================
-  // ✨ NEW FEATURE: FILE OPENING HANDLER
-  // ========================================================================
-  /**
-   * Handler for opening files in the system's default application.
-   * This is triggered when users click on source chips in the chat.
-   *
-   * FLOW:
-   * 1. User asks: "What was the revenue in 2023?"
-   * 2. Backend returns response with sources including file paths
-   * 3. Frontend displays clickable source chips (see renderer.js)
-   * 4. User clicks chip → renderer.js calls window.electronAPI.openFile(path)
-   * 5. Preload bridge forwards to this handler
-   * 6. This handler opens the file using Electron's shell.openPath()
-   * 7. File opens in system default app (Adobe Reader, Word, etc.)
-   *
-   * CRITICAL FOR BACKEND DEVELOPERS:
-   * ================================
-   * When your RAG retrieval returns source documents, you MUST provide the
-   * FULL ABSOLUTE PATH to each file, not just the filename.
-   *
-   * WHY ABSOLUTE PATHS?
-   * - Relative paths won't work across different working directories
-   * - The frontend needs to know the exact location on the filesystem
-   * - You should store the original upload path in your vector DB metadata
-   *
-   * HOW TO STORE PATHS IN YOUR BACKEND:
-   * ------------------------------------
-   * When users upload documents through the frontend:
-   *
-   * 1. The frontend sends absolute file paths to ragService.uploadDocuments()
-   * 2. Your backend should store this path in vector DB chunk metadata:
-   *
-   *    Python example:
-   *    for file_path in uploaded_files:  # These are already absolute paths
-   *        chunks = process_document(file_path)
-   *        for chunk in chunks:
-   *            vector_db.add(
-   *                text=chunk.text,
-   *                embedding=chunk.embedding,
-   *                metadata={
-   *                    "source_file": file_path,  # ← Store the absolute path here!
-   *                    "file_name": os.path.basename(file_path),
-   *                    "page": chunk.page
-   *                }
-   *            )
-   *
-   * 3. During RAG query, retrieve the path from metadata:
-   *
-   *    Python example:
-   *    retrieved_chunks = vector_db.search(query_embedding, top_k=5)
-   *    sources = []
-   *    seen = set()
-   *    for chunk in retrieved_chunks:
-   *        path = chunk.metadata["source_file"]  # ← Get the stored path
-   *        name = chunk.metadata["file_name"]
-   *        if path not in seen:
-   *            sources.append({"name": name, "path": path})
-   *            seen.add(path)
-   *
-   * EXPECTED RESPONSE FORMAT FROM BACKEND:
-   * ---------------------------------------
-   * {
-   *   text: "Here is your answer based on the documents...",
-   *   sources: [
-   *     {
-   *       name: "annual_report_2023.pdf",        // Display name (shown in UI)
-   *       path: "/absolute/path/to/annual_report_2023.pdf"  // Full path (for opening)
-   *     },
-   *     {
-   *       name: "project_specs_v2.docx",
-   *       path: "C:\\Users\\your-username\\Documents\\project_specs_v2.docx"  // Windows example
-   *     }
-   *   ]
-   * }
-   *
-   * PLATFORM-SPECIFIC PATH FORMATS:
-   * --------------------------------
-   * Windows:  "C:\\Users\\your-username\\Documents\\file.pdf"
-   * macOS:    "/Users/your-username/Documents/file.pdf"
-   * Linux:    "/home/your-username/documents/file.pdf"
-   *
-   * All formats work with shell.openPath() - it's cross-platform!
-   *
-   * @param {Object} event - IPC event (automatically provided)
-   * @param {string} filePath - Absolute path to the file to open
-   * @returns {Promise<{success: boolean, error?: string}>}
-   */
   ipcMain.handle('file:open', async (event, filePath) => {
     try {
-      // STEP 1: Validate that the file exists before attempting to open
-      // This prevents showing OS errors to the user for missing files
       if (!fs.existsSync(filePath)) {
         console.error(`[FILE:OPEN] File not found: ${filePath}`);
         return { success: false, error: 'File not found' };
       }
-
-      // STEP 2: Open the file in the system's default application
-      // shell.openPath() is a cross-platform Electron API that:
-      // - Opens PDFs in Adobe Reader / Preview / Evince
-      // - Opens DOCX in Microsoft Word / LibreOffice
-      // - Opens images in default image viewer
-      // - Opens videos in default video player
-      // - Works on Windows, macOS, and Linux
       const result = await shell.openPath(filePath);
 
-      // STEP 3: Check if opening was successful
-      // Note: shell.openPath() returns:
-      // - Empty string "" if successful
-      // - Error message string if failed
       if (result) {
         console.error(`[FILE:OPEN] Failed to open file: ${result}`);
         return { success: false, error: result };
@@ -436,8 +314,6 @@ app.whenReady().then(() => {
   createWindow();
   createMenu();
 
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -445,9 +321,7 @@ app.whenReady().then(() => {
   });
 });
 
-/**
- * Creates the native application menu with RAG-specific upload options.
- */
+
 function createMenu() {
   const template = [
     {
@@ -477,14 +351,8 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.
