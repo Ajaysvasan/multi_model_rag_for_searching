@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <title>RAGPT Chatbot</title>
     <link rel="stylesheet" href="index.css" />
-    <!-- Markdown Support -->
+    
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   </head>
   <body>
     <div id="theme-background"></div>
     <div id="app">
-      <!-- SIDEBAR: Contains document status and chat history -->
+      
       <aside id="sidebar">
         <button id="sidebar-toggle" title="Toggle Sidebar">
           <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M21,3H3C1.9,3 1,3.9 1,5V19C1,20.1 1.9,21 3,21H21C22.1,21 23,20.1 23,19V5C23,3.9 22.1,3 21,3M12,19H3V5H12V19Z"/></svg>
@@ -20,7 +20,6 @@
           <button id="new-chat-btn">+ New Chat</button>
         </div>
         <div class="sidebar-scroll-container">
-          <!-- Historical Chat Sessions -->
           <div class="sidebar-section" id="history-section">
             <div class="search-container">
               <svg viewBox="0 0 24 24" width="16" height="16" class="search-icon"><path fill="currentColor" d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
@@ -31,7 +30,6 @@
               <li>Initial Session</li>
             </ul>
           </div>
-          <!-- Indexed Documents List -->
           <div class="sidebar-section" id="documents-section">
             <h3>Uploaded Files</h3>
             <ul id="document-list">
@@ -66,10 +64,9 @@
         </div>
       </aside>
 
-      <!-- MAIN CONTENT: The active chat interface -->
       <main id="main-content">
         <div id="chat-container">
-          <!-- Bot and User bubbles will be dynamically injected here -->
+          
           <div class="message bot-message">
             <div class="message-content">Hello! I'm your RAG assistant. Ask me anything about your documents.</div>
           </div>
@@ -79,15 +76,14 @@
           <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
         </button>
 
-        <!-- INPUT AREA: Document previews and text input -->
         <div id="input-area">
           <div id="welcome-message" class="welcome-message">How can I help you today?</div>
           <div id="input-container">
-            <!-- Dynamically populated when user uploads files but hasn't clicked 'send' -->
+            
             <div id="uploaded-docs-preview" class="uploaded-docs-preview"></div>
             
             <div class="input-row">
-              <!-- Upload Menu -->
+              
               <div class="upload-dropdown">
                 <button id="upload-btn" title="Upload Media">
                   <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M16.5,6V17.5A4,4 0 0,1 12.5,21.5A4,4 0 0,1 8.5,17.5V5A2.5,2.5 0 0,1 11,2.5A2.5,2.5 0 0,1 13.5,5V15.5A1,1 0 0,1 12.5,16.5A1,1 0 0,1 11.5,15.5V6H10V15.5A2.5,2.5 0 0,0 12.5,18A2.5,2.5 0 0,0 15,15.5V5A4,4 0 0,0 11,1A4,4 0 0,0 7,5V17.5A5.5,5.5 0 0,0 12.5,23A5.5,5.5 0 0,0 18,17.5V6H16.5Z"/></svg>
