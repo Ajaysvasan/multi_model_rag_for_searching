@@ -211,3 +211,5 @@ processed_image/
 data/
 out
 models/
+bin/
+third_party
