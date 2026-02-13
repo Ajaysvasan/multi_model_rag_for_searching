@@ -212,4 +212,4 @@ data/
 out
 models/
 bin/
-third_party
+backend/third_party/
