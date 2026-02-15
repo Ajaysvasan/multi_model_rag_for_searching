@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
 
   // ---- create context ----
   llama_context_params cparams = llama_context_default_params();
-  cparams.n_ctx = 4096;
+  cparams.n_ctx = 8192; // increased for RAG workloads (was 4096)
   unsigned hw = std::thread::hardware_concurrency();
   cparams.n_threads = std::max(1u, hw);
   cparams.n_threads_batch = cparams.n_threads;
@@ -152,6 +152,21 @@ int main(int argc, char **argv) {
     }
     tokens.resize(n_tokens);
 
+    // Guard against prompts that exceed context window
+    if (n_tokens >= cparams.n_ctx) {
+      write_message("ERROR: prompt too long for context window");
+      continue;
+    }
+
+    // Recreate context for stateless, clean request
+    // (KV cache clear APIs not available in this llama.cpp build)
+    llama_free(ctx);
+    ctx = llama_init_from_model(model, cparams);
+    if (!ctx) {
+      write_message("ERROR: failed to recreate context");
+      continue;
+    }
+
     // Evaluate prompt
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
     for (int i = 0; i < n_tokens; ++i) {
@@ -165,7 +180,7 @@ int main(int argc, char **argv) {
 
     if (llama_decode(ctx, batch) != 0) {
       llama_batch_free(batch);
-      write_message("ERROR: decode failed");
+      write_message("ERROR: decode failed (prompt eval)");
       continue;
     }
     llama_batch_free(batch);

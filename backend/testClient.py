@@ -52,6 +52,9 @@ if __name__ == "__main__":
     client = CppLlmClient(
         "./bin/llm_backend", "./models/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
     )
-    out = client.generate("Explain mmap in one short paragraph.")
+    # testing that , whether the consumption of ram is high or not to ensure whether the model is getting lazy loaded or not , if high then no , if low then yes
+    test_input = input("Enter a promp for the model: ")
+    out = client.generate(test_input)
+
     print("MODEL OUTPUT:\n", out)
     client.close()
