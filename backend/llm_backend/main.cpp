@@ -10,7 +10,6 @@
 #include <thread>
 #include <vector>
 
-// llama.cpp headers
 #include "llama.h"
 
 static std::atomic<bool> g_shutdown{false};
@@ -76,7 +75,6 @@ int main(int argc, char **argv) {
   // ---- llama.cpp backend init ----
   llama_backend_init();
 
-  // ---- load model (mmap enabled) ----
   llama_model_params mparams = llama_model_default_params();
   mparams.use_mmap = true;   // important: mmap GGUF
   mparams.use_mlock = false; // keep false for now
