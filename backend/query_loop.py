@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 
 
@@ -42,6 +43,7 @@ def run_query_loop(engine, conv_memory, session_id, query_preprocessor):
                         print(f"    {text_preview}...")
                 print()
             else:
+                start_time = time.time()
                 query = user_input
                 # here is where the convo id is stored for each conversation
                 conv_memory.add_turn(session_id, "user", query)
@@ -50,8 +52,10 @@ def run_query_loop(engine, conv_memory, session_id, query_preprocessor):
                 response = engine.retrieve_and_generate(
                     query, intent_query, session_id=session_id
                 )
+                end_time = time.time()
 
                 print(f"\nAssistant: {response.answer}")
+                print(f"Time taken : {(end_time - start_time):.2f} seconds")
 
                 conv_memory.add_turn(session_id, "assistant", response.answer)
 

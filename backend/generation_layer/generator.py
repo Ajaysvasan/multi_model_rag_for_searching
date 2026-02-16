@@ -334,4 +334,8 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
             )
 
 
+class MmapGenerator:
+    pass
+
+
 AnswerGenerator = LlamaGenerator

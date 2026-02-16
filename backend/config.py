@@ -4,6 +4,9 @@ from pathlib import Path
 
 
 class Config:
+
+    OS = ["windows", "linux", "macos"]
+
     INDEX_PATH = Path("data/index/faiss_hnsw.index")
 
     NORMALIZATION_VERSION = "rag_v1"
