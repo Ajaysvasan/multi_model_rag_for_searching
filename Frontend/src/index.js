@@ -10,8 +10,65 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow;
-let mockStorage = []; // Simulated database for chat sessions
-let documentStorage = []; // Simulated database for uploaded document metadata
+// BACKEND INTEGRATION: These in-memory arrays act as a local cache backed by
+// JSON files on disk. When a real backend is available, remove the local
+// persistence layer below and fetch/store data via your backend API instead.
+let mockStorage = [];       // Loaded from disk in app.whenReady()
+let documentStorage = [];   // Loaded from disk in app.whenReady()
+
+// ---------------------------------------------------------------------------
+// LOCAL PERSISTENCE LAYER
+// ---------------------------------------------------------------------------
+// BACKEND INTEGRATION: The constants and three functions below (getStoragePath,
+// loadFromDisk, saveToDisk) form the local persistence layer. When your backend
+// API is ready, remove these entirely and replace every saveToDisk() call with
+// the appropriate backend API call (e.g., ragService.saveSession()), and every
+// loadFromDisk() call with a backend fetch (e.g., ragService.getAllSessions()).
+// Search this file for "BACKEND INTEGRATION" to find every spot that needs
+// replacement.
+// ---------------------------------------------------------------------------
+const CHAT_HISTORY_FILE = 'chat-history.json';
+const DOCUMENT_METADATA_FILE = 'document-metadata.json';
+
+/**
+ * Returns the absolute path to a JSON storage file in the app's userData directory.
+ * On Windows this is typically: C:\Users\<username>\AppData\Roaming\<app-name>\
+ */
+function getStoragePath(filename) {
+  return path.join(app.getPath('userData'), filename);
+}
+
+/**
+ * Loads an array from a JSON file on disk.
+ * Returns [] if the file does not exist or contains invalid JSON.
+ * BACKEND INTEGRATION: Replace with a backend API call, e.g. ragService.getAllSessions()
+ */
+function loadFromDisk(filename) {
+  const filePath = getStoragePath(filename);
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch (err) {
+    console.error(`[Persistence] Failed to load ${filename}, starting fresh:`, err.message);
+  }
+  return [];
+}
+
+/**
+ * Saves an array to a JSON file on disk.
+ * BACKEND INTEGRATION: Replace with a backend API call, e.g. ragService.saveSession(data)
+ */
+function saveToDisk(filename, data) {
+  const filePath = getStoragePath(filename);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.error(`[Persistence] Failed to save ${filename}:`, err.message);
+  }
+}
 
 
 function getAllFiles(dirPath, arrayOfFiles) {
@@ -87,7 +144,11 @@ async function performUpload(type = 'document') {
         documentStorage.push(doc);
         uploadedFiles.push({ name: doc.name, type: doc.type });
       });
-      
+
+      // Persist updated document list to disk
+      // BACKEND INTEGRATION: Remove this line; the backend will handle storage.
+      saveToDisk(DOCUMENT_METADATA_FILE, documentStorage);
+
       // NOTIFY UI: If the upload was triggered via the Native Menu (Cmd+O),
       // the renderer doesn't know it happened yet. We send an IPC event to tell it to refresh.
       if (mainWindow) {
@@ -140,7 +201,16 @@ if (require('electron-squirrel-startup')) {
 
 
 app.whenReady().then(() => {
-  
+
+  // --- Load persisted data from disk on startup ---
+  // BACKEND INTEGRATION: Replace these two lines with async calls to your
+  // backend API to fetch the initial data, e.g.:
+  //   mockStorage = await ragService.getAllSessions();
+  //   documentStorage = await ragService.getAllDocuments();
+  mockStorage = loadFromDisk(CHAT_HISTORY_FILE);
+  documentStorage = loadFromDisk(DOCUMENT_METADATA_FILE);
+  console.log(`[Persistence] Loaded ${mockStorage.length} chat sessions, ${documentStorage.length} documents from disk.`);
+
   protocol.handle('local-resource', async (request) => {
     try {
       const url = new URL(request.url);
@@ -219,6 +289,10 @@ app.whenReady().then(() => {
         };
         documentStorage.push(doc);
 
+        // Persist updated document list to disk
+        // BACKEND INTEGRATION: Remove this line; the backend will handle storage.
+        saveToDisk(DOCUMENT_METADATA_FILE, documentStorage);
+
         // Notify UI
         if (mainWindow) {
           mainWindow.webContents.send('documents:refreshed');
@@ -233,29 +307,35 @@ app.whenReady().then(() => {
     }
   });
 
+  // BACKEND INTEGRATION: Replace with return await ragService.getAllDocuments()
   ipcMain.handle('documents:get-all', async () => {
     return documentStorage;
   });
 
+  // BACKEND INTEGRATION: Replace the body of this handler with a call to your
+  // backend API, e.g. await ragService.saveSession(chatSession)
   ipcMain.handle('history:save', async (event, chatSession) => {
-    // Logic to save or update a chat session
     const index = mockStorage.findIndex(s => s.id === chatSession.id);
     if (index > -1) {
       mockStorage[index] = chatSession;
     } else {
       mockStorage.push(chatSession);
     }
+    // Persist updated chat history to disk
+    saveToDisk(CHAT_HISTORY_FILE, mockStorage);
     return { success: true };
   });
 
+  // BACKEND INTEGRATION: Replace with return await ragService.getAllSessions()
   ipcMain.handle('history:get-all', async () => {
-    // Logic to retrieve all saved sessions
     return mockStorage;
   });
 
+  // BACKEND INTEGRATION: Replace with await ragService.deleteSession(sessionId)
   ipcMain.handle('history:delete', async (event, sessionId) => {
-    // Logic to delete a specific session
     mockStorage = mockStorage.filter(s => s.id !== sessionId);
+    // Persist updated chat history to disk
+    saveToDisk(CHAT_HISTORY_FILE, mockStorage);
     return { success: true };
   });
 
