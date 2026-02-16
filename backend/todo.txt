@@ -1,0 +1,8 @@
+TODO:
+1. refactor the main.cpp file and complete the engine.cpp and protocol.cpp files
+2. refactor the generator.py file so that Mmap class and the Llmgenerator class are being there for different os
+3. add some test cases to test the performance of the model
+4. integrate the frontend and the backend 
+5. make the build files properly 
+6. Update the readme files and add some documentation for the codebase
+7. once done these things optimise the code base to make it clean , readable and also efficient
