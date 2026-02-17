@@ -17,7 +17,7 @@ def _ask_mode():
     return "ingest" if choice == "1" else "chat"
 
 
-def main():
+def pipeline():
     try:
         mode = _ask_mode()
 
@@ -45,4 +45,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    pipeline()

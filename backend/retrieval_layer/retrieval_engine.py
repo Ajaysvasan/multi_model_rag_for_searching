@@ -93,8 +93,9 @@ class QueryProcessing:
         r"^(tell\s+me|what\s+is|what\s+are|explain)\s+(about|regarding)?\s*",
     ]
 
-    def __init__(self, conversation_memory):
+    def __init__(self, conversation_memory, embedding_model=None):
         self.conversation_memory = conversation_memory
+        self.embedding_model = embedding_model
 
     def _extract_query_intent(self, query: str) -> str:
         cleaned = query.strip()
@@ -104,6 +105,13 @@ class QueryProcessing:
             return query
         return cleaned
 
+    @staticmethod
+    def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+        norm_a, norm_b = np.linalg.norm(a), np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return float(np.dot(a, b) / (norm_a * norm_b))
+
     def _expand_with_context(self, query: str, session_id: str) -> str:
         if not session_id or not self.conversation_memory:
             return query
@@ -111,11 +119,24 @@ class QueryProcessing:
         if not recent or len(recent) <= 1:
             return query
         prior = recent[:-1]
-        short_words = len(query.split()) <= 4
+
         is_followup = any(
             w in query.lower()
             for w in ["more", "also", "else", "that", "this", "it", "they", "same"]
         )
+
+        # Gate on semantic similarity — only expand if topically related
+        if self.embedding_model is not None:
+            q_emb = self.embedding_model.encode(query, normalize_embeddings=True)
+            best_sim = max(
+                self._cosine_sim(q_emb, self.embedding_model.encode(p, normalize_embeddings=True))
+                for p in prior
+            )
+            if best_sim < 0.45 and not is_followup:
+                logger.info(f"Query unrelated to history (sim={best_sim:.2f}), skipping expansion")
+                return query
+
+        short_words = len(query.split()) <= 4
         if short_words or is_followup:
             context = " | ".join(prior[-2:])
             expanded = f"{context} {query}"
@@ -413,11 +434,24 @@ class RetrievalEngine(QueryProcessing):
         if not recent or len(recent) <= 1:
             return query
         prior = recent[:-1]
-        short_words = len(query.split()) <= 4
+
         is_followup = any(
             w in query.lower()
             for w in ["more", "also", "else", "that", "this", "it", "they", "same"]
         )
+
+        # Gate on semantic similarity — skip expansion for unrelated queries
+        if self.embedding_model is not None:
+            q_emb = self._embed_query(query)
+            best_sim = max(
+                float(np.dot(q_emb, self._embed_query(p)))
+                for p in prior
+            )
+            if best_sim < 0.45 and not is_followup:
+                logger.info(f"Query unrelated to history (sim={best_sim:.2f}), skipping expansion")
+                return query
+
+        short_words = len(query.split()) <= 4
         if short_words or is_followup:
             context = " | ".join(prior[-2:])
             expanded = f"{context} {query}"
@@ -428,7 +462,7 @@ class RetrievalEngine(QueryProcessing):
     def _get_conversation_context(self, session_id: str) -> list:
         if not session_id or not self.conversation_memory:
             return []
-        return self.conversation_memory.get_context(session_id, max_turns=6)
+        return self.conversation_memory.get_context(session_id, max_turns=4)
 
     def _embed_query(self, query: str) -> np.ndarray:
         vec = self.embedding_model.encode(

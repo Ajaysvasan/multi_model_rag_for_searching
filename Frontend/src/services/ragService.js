@@ -1,10 +1,3 @@
-/**
- * RAGService — Connects the Electron frontend to the FastAPI backend.
- *
- * Endpoint base URL is configurable via the BACKEND_URL constant below.
- * No authentication headers are sent.
- */
-
 const BACKEND_URL = "http://localhost:8000";
 
 class RAGService {

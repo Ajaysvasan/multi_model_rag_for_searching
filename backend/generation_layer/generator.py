@@ -1,9 +1,12 @@
 import logging
 import os
 import re
+import struct
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from platform import system
 from typing import List, Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +28,6 @@ if not logger.handlers:
 
 @dataclass
 class Citation:
-    """Represents a citation to a source chunk."""
 
     citation_id: int
     chunk_id: str
@@ -117,20 +119,19 @@ class LlamaGenerator:
             import torch
 
             if torch.cuda.is_available():
-                n_gpu_layers = -1  # Offload all layers to GPU
+                n_gpu_layers = -1
                 if show_progress:
                     logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
         except ImportError:
             pass
 
-        # Detect CPU thread count for optimal performance
         n_threads = os.cpu_count() or 4
 
         self.model = Llama(
             model_path=str(model_path),
-            n_ctx=4096,  # Sufficient for RAG (3-5 chunks ~2k tokens)
+            n_ctx=2048,
             n_gpu_layers=n_gpu_layers,
-            n_batch=512,  # Faster prompt processing
+            n_batch=256,
             n_threads=n_threads,
             verbose=False,
         )
@@ -174,16 +175,33 @@ class LlamaGenerator:
             max_tokens=max_new_tokens,
             temperature=temperature,
             top_p=0.9,
-            top_k=40,
+            top_k=20,
             repeat_penalty=1.1,
         )
 
         return response["choices"][0]["message"]["content"]
 
+    _REFUSAL_PHRASES = [
+        "couldn't find",
+        "could not find",
+        "do not contain enough",
+        "don't contain enough",
+        "no relevant information",
+        "not contain enough information",
+        "cannot answer",
+        "unable to find",
+        "no information available",
+        "not enough information",
+    ]
+
+    @staticmethod
+    def _is_refusal(text: str) -> bool:
+        lower = text.lower()
+        return any(p in lower for p in LlamaGenerator._REFUSAL_PHRASES)
+
     @staticmethod
     def _clean_response(text: str) -> str:
         """Post-process to remove hallucinated references/URLs."""
-        # Remove any generated reference sections
         for marker in [
             "References:",
             "Sources:",
@@ -197,19 +215,10 @@ class LlamaGenerator:
             if idx > 0:
                 text = text[:idx].rstrip()
 
-        # Remove hallucinated URLs
         text = re.sub(r"https?://\S+", "", text)
-
-        # Remove hallucinated "Retrieved from" citations
         text = re.sub(r"Retrieved (?:from|on) .+?(?:\n|$)", "", text)
-
-        # Remove fake academic citations like "(n.d.)" or "(2021)"
         text = re.sub(r"\([a-zA-Z\s,&]+,?\s*(?:n\.d\.|\d{4})\)", "", text)
-
-        # Remove ReportLab / PDF metadata mentions
         text = re.sub(r"(?i)reportlab[\w\s]*(?:generated|pdf)?[^.]*\.?", "", text)
-
-        # Clean up multiple newlines / spaces left by removals
         text = re.sub(r"\n{3,}", "\n\n", text)
         text = re.sub(r"  +", " ", text)
 
@@ -220,11 +229,10 @@ class LlamaGenerator:
         query: str,
         chunks: List[dict],
         include_sources: bool = True,
-        max_new_tokens: int = 200,
+        max_new_tokens: int = 128,
         temperature: float = 0.1,
         conversation_context: List[dict] = None,
     ) -> GenerationResult:
-        """Generate answer from retrieved chunks."""
         if not chunks:
             return GenerationResult(
                 answer="I couldn't find any relevant information.",
@@ -235,7 +243,6 @@ class LlamaGenerator:
         if not self._is_loaded:
             self.load_model(show_progress=False)
 
-        # Skip empty chunks
         valid_chunks = [c for c in chunks if c.get("chunk_text", "").strip()]
         if not valid_chunks:
             return GenerationResult(
@@ -245,8 +252,7 @@ class LlamaGenerator:
                 model_used=self.model_name,
             )
 
-        # Guard: if ALL chunks are very short (<50 chars), they likely contain
-        # only metadata/headers.  Return them directly instead of hallucinating.
+        # Chunks under 50 chars are likely just metadata/headers — return raw
         if all(len(c.get("chunk_text", "").strip()) < 50 for c in valid_chunks):
             bullets = "\n".join(
                 f"• {c.get('chunk_text', '').strip()}" for c in valid_chunks
@@ -265,12 +271,13 @@ class LlamaGenerator:
 STRICT RULES:
 1. Use ONLY facts stated in the context below — nothing else.
 2. Cite sources inline as [1], [2], etc.
-3. If the context lacks sufficient information, say: "The available sources do not contain enough information to answer this fully."
+3. If the context lacks sufficient information, say ONLY: "I could not find relevant information in the available sources." Do NOT cite any source numbers or file names.
 4. Be concise. Do NOT pad your answer.
 5. NEVER invent or guess URLs, links, dates, statistics, or references.
 6. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.
 7. Do NOT add References, Sources, Bibliography, or Citation sections.
-8. Do NOT generate content beyond what the context provides."""
+8. Do NOT generate content beyond what the context provides.
+9. If NONE of the context passages relate to the question, do NOT cite any sources — respond only with the refusal message from rule 3."""
 
         user_message = f"""CONTEXT:
 {context}
@@ -281,9 +288,9 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
 
         if conversation_context:
             history_lines = []
-            for turn in conversation_context[-4:]:
+            for turn in conversation_context[-2:]:
                 role = turn.get("role", "user").capitalize()
-                content = turn.get("content", "")[:200]
+                content = turn.get("content", "")[:150]
                 history_lines.append(f"{role}: {content}")
             history_str = "\n".join(history_lines)
             user_message = f"CONVERSATION HISTORY:\n{history_str}\n\n{user_message}"
@@ -299,8 +306,15 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
             else:
                 raw_text = self._call_api(messages, max_new_tokens, temperature)
 
-            # Post-process to remove hallucinations
             cleaned_text = self._clean_response(raw_text)
+
+            # If the LLM refused to answer, return with no citations
+            if self._is_refusal(cleaned_text):
+                return GenerationResult(
+                    answer=cleaned_text, citations=[],
+                    raw_response=raw_text, model_used=self.model_name,
+                    success=True,
+                )
 
             citations = []
             for i, chunk in enumerate(valid_chunks[:5]):
@@ -339,7 +353,268 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
 
 
 class MmapGenerator:
-    pass
+    """
+    Delegates LLM inference to the C++ llm_backend binary which loads the
+    GGUF model via mmap (VAS), keeping RSS low while the OS pages in weights
+    on demand.  IPC uses a length-prefixed binary protocol over stdin/stdout.
+    """
+
+    DEFAULT_MODEL = Config.DEFAULT_MODEL
+
+    def __init__(
+        self,
+        model_path: str = "",
+        model_name: str = "",
+        backend_path: str = "",
+    ):
+        base_dir = Path(__file__).resolve().parent.parent
+        model_file = getattr(
+            Config,
+            "GENERATION_MODEL_FILE",
+            "mistral-7b-instruct-v0.2.Q4_K_M.gguf",
+        )
+
+        # backend binary — resolve relative paths against backend/
+        bp = Path(backend_path) if backend_path else base_dir / "bin" / "llm_backend"
+        self.backend_path = bp if bp.is_absolute() else base_dir / bp
+
+        # model_path can be a directory OR a full file path
+        if model_path:
+            mp = Path(model_path)
+            if not mp.is_absolute():
+                mp = base_dir / mp
+            if mp.is_dir() or not mp.suffix:  # directory → append model filename
+                mp = mp / model_file
+        else:
+            models_dir = Path(getattr(Config, "MODELS_DIR", "models"))
+            if not models_dir.is_absolute():
+                models_dir = base_dir / models_dir
+            mp = models_dir / model_file
+        self.model_path = mp
+
+        self.model_name = model_name or getattr(
+            Config, "GENERATION_MODEL", self.DEFAULT_MODEL
+        )
+
+        lib_dir = str(base_dir / "third_party" / "llama.cpp" / "build" / "bin")
+        current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+        if lib_dir not in current_ld:
+            os.environ["LD_LIBRARY_PATH"] = f"{lib_dir}:{current_ld}"
+
+        self._proc: Optional[subprocess.Popen] = None
+        self._is_loaded = False
+
+    def _ensure_backend(self):
+        """Lazily spawn the C++ backend; reuse across calls, restart if dead."""
+        if self._is_loaded and self._proc and self._proc.poll() is None:
+            return
+
+        if not self.backend_path.exists():
+            raise FileNotFoundError(
+                f"C++ backend not found at {self.backend_path}. "
+                "Compile it first (see llm_backend/main.cpp)."
+            )
+        if not self.model_path.exists():
+            raise FileNotFoundError(
+                f"Model not found at {self.model_path}. "
+                "Run 'python download_model.py' first."
+            )
+
+        logger.info(f"Spawning C++ mmap backend: {self.backend_path} {self.model_path}")
+
+        self._proc = subprocess.Popen(
+            [str(self.backend_path), str(self.model_path)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+
+        line = self._proc.stdout.readline().decode("utf-8").strip()
+        if line != "READY":
+            stderr_out = ""
+            try:
+                stderr_out = self._proc.stderr.read(2048).decode(
+                    "utf-8", errors="replace"
+                )
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"C++ backend failed to start. Got: '{line}'. stderr: {stderr_out}"
+            )
+
+        logger.info("C++ mmap backend is READY")
+        self._is_loaded = True
+
+    def load_model(self, show_progress: bool = True):
+        self._ensure_backend()
+
+    def is_model_cached(self) -> bool:
+        return self.model_path.exists()
+
+    # ---- IPC: 4-byte LE uint32 length prefix + UTF-8 payload ----
+
+    def _write_msg(self, s: str):
+        data = s.encode("utf-8")
+        self._proc.stdin.write(struct.pack("<I", len(data)))
+        self._proc.stdin.write(data)
+        self._proc.stdin.flush()
+
+    def _read_msg(self) -> str:
+        hdr = self._proc.stdout.read(4)
+        if not hdr:
+            raise RuntimeError("C++ backend closed unexpectedly")
+        (n,) = struct.unpack("<I", hdr)
+        data = self._proc.stdout.read(n)
+        return data.decode("utf-8", errors="replace")
+
+    def _generate_via_backend(self, prompt: str) -> str:
+        self._ensure_backend()
+        self._write_msg(prompt)
+        response = self._read_msg()
+        if response.startswith("ERROR:"):
+            raise RuntimeError(f"C++ backend error: {response}")
+        return response
+
+    def generate(
+        self,
+        query: str,
+        chunks: List[dict],
+        include_sources: bool = True,
+        max_new_tokens: int = 200,
+        temperature: float = 0.6,
+        conversation_context: List[dict] = None,
+    ) -> GenerationResult:
+
+        if not chunks:
+            return GenerationResult(
+                answer="I couldn't find any relevant information.",
+                success=True,
+                model_used=self.model_name,
+            )
+
+        valid_chunks = [c for c in chunks if c.get("chunk_text", "").strip()]
+        if not valid_chunks:
+            return GenerationResult(
+                answer="The retrieved documents could not be read. "
+                "Please try re-ingesting the data.",
+                success=False,
+                error="All chunks have empty text",
+                model_used=self.model_name,
+            )
+
+        # Chunks under 50 chars are likely just metadata/headers — return raw
+        if all(len(c.get("chunk_text", "").strip()) < 50 for c in valid_chunks):
+            bullets = "\n".join(
+                f"• {c.get('chunk_text', '').strip()}" for c in valid_chunks
+            )
+            return GenerationResult(
+                answer=f"The retrieved content is very brief:\n{bullets}",
+                success=True,
+                model_used=self.model_name,
+            )
+
+        context = format_context_for_generation(
+            valid_chunks, include_source=include_sources, max_chunks=5
+        )
+
+        system_message = (
+            "You are a factual Q&A assistant. Answer ONLY from the provided context.\n"
+            "STRICT RULES:\n"
+            "1. Use ONLY facts stated in the context below — nothing else.\n"
+            "2. Cite sources inline as [1], [2], etc.\n"
+            "3. If the context lacks sufficient information, say ONLY: "
+            '"I could not find relevant information in the available sources." '
+            "Do NOT cite any source numbers or file names.\n"
+            "4. Be concise. Do NOT pad your answer.\n"
+            "5. NEVER invent or guess URLs, links, dates, statistics, or references.\n"
+            "6. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.\n"
+            "7. Do NOT add References, Sources, Bibliography, or Citation sections.\n"
+            "8. Do NOT generate content beyond what the context provides.\n"
+            "9. If NONE of the context passages relate to the question, do NOT cite any sources — "
+            "respond only with the refusal message from rule 3."
+        )
+
+        user_message = (
+            f"CONTEXT:\n{context}\n\n"
+            f"QUESTION: {query}\n\n"
+            "Answer the question using ONLY the context above. Use inline [1], [2] citations:"
+        )
+
+        if conversation_context:
+            history_lines = []
+            for turn in conversation_context[-2:]:
+                role = turn.get("role", "user").capitalize()
+                content = turn.get("content", "")[:150]
+                history_lines.append(f"{role}: {content}")
+            history_str = "\n".join(history_lines)
+            user_message = f"CONVERSATION HISTORY:\n{history_str}\n\n{user_message}"
+
+        # Wrap in Mistral [INST] tags — the C++ backend has no chat template
+        prompt = f"[INST] <<SYS>>\n{system_message}\n<</SYS>>\n\n{user_message} [/INST]"
+
+        try:
+            raw_text = self._generate_via_backend(prompt)
+            cleaned_text = LlamaGenerator._clean_response(raw_text)
+
+            if LlamaGenerator._is_refusal(cleaned_text):
+                return GenerationResult(
+                    answer=cleaned_text, citations=[],
+                    raw_response=raw_text, model_used=self.model_name,
+                    success=True,
+                )
+
+            citations = []
+            for i, chunk in enumerate(valid_chunks[:5]):
+                citations.append(
+                    Citation(
+                        citation_id=i + 1,
+                        chunk_id=chunk.get("chunk_id", f"chunk_{i}"),
+                        source_path=chunk.get("source_path", "unknown"),
+                        chunk_text=chunk.get("chunk_text", "")[:200],
+                        start_offset=chunk.get("start_offset", 0),
+                        end_offset=chunk.get("end_offset", 0),
+                        relevance_score=chunk.get("score", 0.0),
+                    )
+                )
+
+            return GenerationResult(
+                answer=cleaned_text,
+                citations=citations,
+                raw_response=raw_text,
+                model_used=self.model_name,
+                success=True,
+            )
+
+        except Exception as e:
+            logger.error(f"MmapGenerator generation failed: {e}")
+            return GenerationResult(
+                answer=f"Error: {str(e)}",
+                success=False,
+                error=str(e),
+                model_used=self.model_name,
+            )
+
+    def close(self):
+        if self._proc is not None:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=5)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+            self._is_loaded = False
+            logger.info("C++ mmap backend terminated")
+
+    def __del__(self):
+        self.close()
 
 
-AnswerGenerator = LlamaGenerator
+AnswerGenerator = None
+if system().lower() in ["linux", "darwin"]:
+    AnswerGenerator = MmapGenerator
+else:
+    AnswerGenerator = LlamaGenerator

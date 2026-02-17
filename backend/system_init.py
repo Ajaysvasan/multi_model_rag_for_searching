@@ -1,5 +1,6 @@
 import os
 import uuid
+from platform import system
 
 from sentence_transformers import SentenceTransformer
 
@@ -8,6 +9,7 @@ from config import Config
 from data_layer.chunkstore.Chunkstore import ChunkMetadataStore
 from data_layer.ingest.storage.conversation_memory import ConversationMemory
 from data_layer.ingest.storage.hnsw import HNSWIndex
+from generation_layer.generator import LlamaGenerator, MmapGenerator
 from history_layer.history import ConversationHistory
 from ingestion_pipeline import check_ingestion_exists, run_ingestion
 from retrieval_layer.retrieval_engine import QueryProcessing, RetrievalEngine
@@ -66,19 +68,36 @@ def initialize_system(ingestion_config=None):
         max_turns=10,
     )
     print(f"Initializing query pre processiong")
-    query_preprocessor = QueryProcessing(conv_memory)
+    query_preprocessor = QueryProcessing(conv_memory, embedding_model=embed_model)
     print(
         f"       ✓ Cache, history, and conversation memory ready (session={session_id})"
     )
 
     print("[6/7] Loading LLM model (this may take a while on first run)...")
-    from generation_layer.generator import LlamaGenerator
+
+    if system().lower() == "windows":
+
+        generator = LlamaGenerator(
+            model_name=Config.GENERATION_MODEL,
+            models_dir=str(Config.MODELS_DIR),
+        )
+        # TODO : FIX SOME BUGS WITH THIS
+        # BUG TYPE : CRITICAL
+    elif system().lower() in ["linux", "darwin"]:
+        geneator = MmapGenerator(
+            model_name=Config.GENERATION_MODEL,
+            model_path=Config.MODELS_DIR,
+            backend_path=Config.BIN_PATH,
+        )
+    else:
+        raise OSError(f"Unsupported operating system : {system()}")
 
     generator = LlamaGenerator(
         model_name=Config.GENERATION_MODEL,
         models_dir=str(Config.MODELS_DIR),
     )
     if generator.is_model_cached():
+
         print(f"       Found cached model: {Config.GENERATION_MODEL}")
     else:
         print(f"       Downloading model: {Config.GENERATION_MODEL}")

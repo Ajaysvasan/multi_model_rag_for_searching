@@ -1,5 +1,6 @@
 # Don't assume the directory path as it is given by the user from the end.
 # So keep things in that way
+import os
 from pathlib import Path
 
 
@@ -46,7 +47,10 @@ class Config:
     DEFAULT_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
     API_URL = "https://api-inference.huggingface.co/models"
     DB_PATH = "data/index/cache_history.db"
+    # C++ compiled binayr path for LLM inferenc (if using local model on linux/macos)
+    BIN_PATH = Path(os.path.dirname(os.path.abspath(__file__))) / "bin" / "llm_backend"
 
 
 if __name__ == "__main__":
     test_config = Config()
+    print(os.path.dirname(os.path.abspath(__file__)))

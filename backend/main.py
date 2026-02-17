@@ -8,11 +8,11 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 import platform
-import threading
 
-from config import Config
 from fastapi import FastAPI
 from pydantic import BaseModel
+
+from config import Config
 from system_init import initialize_system
 
 
