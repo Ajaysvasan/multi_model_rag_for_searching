@@ -72,7 +72,6 @@ int main(int argc, char **argv) {
   std::signal(SIGINT, handle_signal);
   std::signal(SIGTERM, handle_signal);
 
-  // ---- llama.cpp backend init ----
   llama_backend_init();
 
   llama_model_params mparams = llama_model_default_params();
@@ -85,9 +84,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // ---- create context ----
+  // create context
   llama_context_params cparams = llama_context_default_params();
-  cparams.n_ctx = 8192; // increased for RAG workloads (was 4096)
+  cparams.n_ctx = 8192; 
   unsigned hw = std::thread::hardware_concurrency();
   cparams.n_threads = std::max(1u, hw);
   cparams.n_threads_batch = cparams.n_threads;
@@ -99,7 +98,6 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // ---- get vocab (new API) ----
   const llama_vocab *vocab = llama_model_get_vocab(model);
   if (!vocab) {
     std::cerr << "Failed to get vocab\n";
@@ -108,7 +106,6 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // ---- optional warmup ----
   {
     const char *warm = " ";
     std::vector<llama_token> toks(16);
@@ -131,17 +128,14 @@ int main(int argc, char **argv) {
     }
   }
 
-  // Handshake for Python
   std::cout << "READY\n" << std::flush;
 
-  // ---- request loop ----
   while (!g_shutdown.load()) {
     std::string prompt;
     if (!read_message(prompt)) {
-      break; // stdin closed
+      break; 
     }
 
-    // Tokenize prompt
     std::vector<llama_token> tokens(prompt.size() + 8);
     int n_tokens = llama_tokenize(vocab, prompt.c_str(), (int)prompt.size(),
                                   tokens.data(), (int)tokens.size(),
@@ -158,8 +152,6 @@ int main(int argc, char **argv) {
       continue;
     }
 
-    // Recreate context for stateless, clean request
-    // (KV cache clear APIs not available in this llama.cpp build)
     llama_free(ctx);
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
@@ -167,7 +159,6 @@ int main(int argc, char **argv) {
       continue;
     }
 
-    // Evaluate prompt
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
     for (int i = 0; i < n_tokens; ++i) {
       batch.token[i] = tokens[i];
@@ -185,7 +176,7 @@ int main(int argc, char **argv) {
     }
     llama_batch_free(batch);
 
-    // Greedy sampling (v1)
+    // Greedy sampling 
     std::string output;
     const int max_new = 256;
     const int vocab_size = llama_vocab_n_tokens(vocab);
@@ -235,7 +226,6 @@ int main(int argc, char **argv) {
     }
   }
 
-  // ---- shutdown ----
   llama_free(ctx);
   llama_model_free(model);
   llama_backend_free();

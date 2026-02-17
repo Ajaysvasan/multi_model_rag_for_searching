@@ -1,112 +1,111 @@
+/**
+ * RAGService — Connects the Electron frontend to the FastAPI backend.
+ *
+ * Endpoint base URL is configurable via the BACKEND_URL constant below.
+ * No authentication headers are sent.
+ */
+
+const BACKEND_URL = "http://localhost:8000";
+
 class RAGService {
+  /**
+   * Send a text query to the RAG backend and return { text, sources }.
+   */
   async getResponse(message) {
-    // Simulate network latency
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const res = await fetch(`${BACKEND_URL}/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: message }),
+      });
 
-    const allSources = [
-      {
-        name: "annual_report_2023.pdf",
-        path: "C:\\Users\\your-username\\Documents\\annual_report_2023.pdf", // Windows path example
-      },
-      {
-        name: "project_specs_v2.docx",
-        path: "/home/user/documents/project_specs_v2.docx", // Linux/Mac path example
-      },
-      {
-        name: "company_policy_handbook.txt",
-        path: "C:\\Company\\Policies\\company_policy_handbook.txt",
-      },
-      {
-        name: "market_research_q4.pdf",
-        path: "/Users/your-username/work/market_research_q4.pdf",
-      },
-    ];
+      if (!res.ok) {
+        throw new Error(`Backend returned HTTP ${res.status}`);
+      }
 
-    // Pick 1-3 random sources to simulate RAG retrieval
-    const selectedSources = allSources
-      .sort(() => 0.5 - Math.random())
-      .slice(0, Math.floor(Math.random() * 3) + 1);
+      const data = await res.json();
 
-    // Simulated LLM Response Generation (Markdown)
-    const responseText = `### Analysis of your query: "${message}"
-
-Based on the retrieved documents, here is what I found:
-
-1. **Key Insight**: The data suggests a strong correlation between user engagement and feature accessibility.
-2. **Recommendation**: We should focus on optimizing the onboarding flow for new users.
-
-\`\`\`javascript
-// Example logic based on the docs
-function optimizeFlow(user) {
-  if (user.isNew) {
-    return showSimplifiedDashboard();
-  }
-}
-\`\`\`
-
-You can find more details in the attached sources below. **Click on any source to open the file!**`;
-
-    return {
-      text: responseText,
-      sources: selectedSources,
-    };
+      // The FastAPI endpoint returns { response, sources }.
+      // Normalise to the shape the renderer expects: { text, sources }.
+      return {
+        text: data.response || data.text || "No response received.",
+        sources: (data.sources || []).map((s) => {
+          if (typeof s === "string") {
+            return { name: s.split("/").pop().split("\\").pop(), path: s };
+          }
+          return s;
+        }),
+      };
+    } catch (error) {
+      console.error("RAGService.getResponse error:", error);
+      return {
+        text: `⚠️ Could not reach the backend at \`${BACKEND_URL}/query\`. Make sure the server is running.\n\nError: ${error.message}`,
+        sources: [],
+      };
+    }
   }
 
+  /**
+   * Send a speech/audio buffer to the backend for STT + RAG processing.
+   */
   async processSpeechQuery(audioBuffer, fileName) {
-    // Simulate Speech-to-Text processing delay
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const formData = new FormData();
+      formData.append("audio", new Blob([audioBuffer]), fileName);
+      formData.append("fileName", fileName);
 
-    console.log(
-      `Processing speech query: ${fileName}, buffer size: ${audioBuffer.length} bytes`
-    );
+      const res = await fetch(`${BACKEND_URL}/speech-query`, {
+        method: "POST",
+        body: formData,
+      });
 
-    // In a real RAG system, you would:
-    // const transcript = await whisperModel.transcribe(audioBuffer);
-    // const response = await this.getResponse(transcript);
+      if (!res.ok) {
+        throw new Error(`Backend returned HTTP ${res.status}`);
+      }
 
-    // For simulation, we'll return a response suggesting we heard the user.
-    const responseText = `### Audio Query Processed
+      const data = await res.json();
 
-I've received your voice message: **"${fileName}"**.
-
-**Backend Processing Summary:**
-- **Step 1**: Audio received as a Node.js Buffer.
-- **Step 2**: Sent to an STT (Speech-to-Text) engine like **Whisper**.
-- **Step 3**: Transcribed text used to query the Vector Database.
-- **Step 4**: Context retrieved and LLM response generated.
-
-*Simulated Transcription*: "How do I optimize the onboarding flow for new users?"
-
-**Click on the sources below to open the files!**`;
-
-    return {
-      text: responseText,
-      sources: [
-        {
-          name: "onboarding_manual.pdf",
-          path: "C:\\Users\\your-username\\Documents\\onboarding_manual.pdf",
-        },
-        {
-          name: "ux_best_practices.docx",
-          path: "/home/user/guides/ux_best_practices.docx",
-        },
-      ],
-    };
+      return {
+        text: data.response || data.text || "No response received.",
+        sources: (data.sources || []).map((s) => {
+          if (typeof s === "string") {
+            return { name: s.split("/").pop().split("\\").pop(), path: s };
+          }
+          return s;
+        }),
+      };
+    } catch (error) {
+      console.error("RAGService.processSpeechQuery error:", error);
+      return {
+        text: `⚠️ Speech query failed. Make sure the backend is running.\n\nError: ${error.message}`,
+        sources: [],
+      };
+    }
   }
 
+  /**
+   * Upload document file paths to the backend for ingestion.
+   */
   async uploadDocuments(filePaths, type = "document") {
-    // Simulate indexing delay
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const res = await fetch(`${BACKEND_URL}/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePaths, type }),
+      });
 
-    console.log(
-      `Uploading ${filePaths.length} ${type} files to vector database:`,
-      filePaths
-    );
+      if (!res.ok) {
+        throw new Error(`Backend returned HTTP ${res.status}`);
+      }
 
-    return {
-      success: true,
-      message: `${filePaths.length} ${type}(s) uploaded and indexed successfully.`,
-    };
+      return await res.json();
+    } catch (error) {
+      console.error("RAGService.uploadDocuments error:", error);
+      return {
+        success: false,
+        message: `Upload failed — backend unreachable. ${error.message}`,
+      };
+    }
   }
 }
 
