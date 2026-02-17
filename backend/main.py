@@ -38,9 +38,9 @@ app = FastAPI(title="AI assistant API")
 
 
 @app.post("query")
-def query_endpoint(query):
+def query_endpoint(query: Query):
 
-    intent_query = query_preprocessor.preprocess_query(query)
+    intent_query = query_preprocessor.preprocess_query(query.query)
     response = engine.retrieve_and_generate(query, intent_query)
     conv_memory.add_turn(session_id, "assistant", response.answer)
     sources = []
@@ -58,11 +58,4 @@ def query_endpoint(query):
 
 if __name__ == "__main__":
     # testing if the function is working or not
-    try:
-        test_query = "I need files containing information about diabetes."
-        query_output = query_endpoint(test_query)
-        print(query_output["response"])
-        metadata_store.close()
-        conv_memory.close()
-    except KeyboardInterrupt:
-        print("\n wtf man")
+    pass
