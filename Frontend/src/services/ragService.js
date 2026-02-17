@@ -1,29 +1,25 @@
-
 class RAGService {
-  
-  
-
   async getResponse(message) {
     // Simulate network latency
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const allSources = [
       {
         name: "annual_report_2023.pdf",
-        path: "C:\\Users\\your-username\\Documents\\annual_report_2023.pdf"  // Windows path example
+        path: "C:\\Users\\your-username\\Documents\\annual_report_2023.pdf", // Windows path example
       },
       {
         name: "project_specs_v2.docx",
-        path: "/home/user/documents/project_specs_v2.docx"  // Linux/Mac path example
+        path: "/home/user/documents/project_specs_v2.docx", // Linux/Mac path example
       },
       {
         name: "company_policy_handbook.txt",
-        path: "C:\\Company\\Policies\\company_policy_handbook.txt"
+        path: "C:\\Company\\Policies\\company_policy_handbook.txt",
       },
       {
         name: "market_research_q4.pdf",
-        path: "/Users/your-username/work/market_research_q4.pdf"
-      }
+        path: "/Users/your-username/work/market_research_q4.pdf",
+      },
     ];
 
     // Pick 1-3 random sources to simulate RAG retrieval
@@ -52,15 +48,17 @@ You can find more details in the attached sources below. **Click on any source t
 
     return {
       text: responseText,
-      sources: selectedSources
+      sources: selectedSources,
     };
   }
 
   async processSpeechQuery(audioBuffer, fileName) {
     // Simulate Speech-to-Text processing delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    console.log(`Processing speech query: ${fileName}, buffer size: ${audioBuffer.length} bytes`);
+    console.log(
+      `Processing speech query: ${fileName}, buffer size: ${audioBuffer.length} bytes`
+    );
 
     // In a real RAG system, you would:
     // const transcript = await whisperModel.transcribe(audioBuffer);
@@ -86,26 +84,28 @@ I've received your voice message: **"${fileName}"**.
       sources: [
         {
           name: "onboarding_manual.pdf",
-          path: "C:\\Users\\your-username\\Documents\\onboarding_manual.pdf"
+          path: "C:\\Users\\your-username\\Documents\\onboarding_manual.pdf",
         },
         {
           name: "ux_best_practices.docx",
-          path: "/home/user/guides/ux_best_practices.docx"
-        }
-      ]
+          path: "/home/user/guides/ux_best_practices.docx",
+        },
+      ],
     };
   }
 
-  async uploadDocuments(filePaths, type = 'document') {
+  async uploadDocuments(filePaths, type = "document") {
     // Simulate indexing delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    console.log(`Uploading ${filePaths.length} ${type} files to vector database:`, filePaths);
-    
-    
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    console.log(
+      `Uploading ${filePaths.length} ${type} files to vector database:`,
+      filePaths
+    );
+
     return {
       success: true,
-      message: `${filePaths.length} ${type}(s) uploaded and indexed successfully.`
+      message: `${filePaths.length} ${type}(s) uploaded and indexed successfully.`,
     };
   }
 }

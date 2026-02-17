@@ -333,6 +333,10 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
                 model_used=self.model_name,
             )
 
+    def __del__(self):
+        if self.model is not None:
+            del self.model
+
 
 class MmapGenerator:
     pass
