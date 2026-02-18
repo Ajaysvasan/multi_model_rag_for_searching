@@ -17,6 +17,7 @@ sys.path.append(parent_dir)
 import asyncio
 import platform
 from datetime import timedelta
+from typing import List
 
 from config import Config
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -72,6 +73,11 @@ class RegisterResponse(BaseModel):
     user_id: str
 
 
+class DocsUploading(BaseModel):
+    filePaths: List[str]
+    type: str = "document"
+
+
 async def backend_init():
 
     from system_services.tui.system_init import initialize_system
@@ -102,6 +108,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI assistant API", lifespan=lifespan)
 
 
+@app.post("/upload")
+def ingest(upload_req: DocsUploading):
+    for file in upload_req.filePaths:
+        print(file)
+
+
 @app.post("/auth/login/")
 def login(login_req: LoginRequest, db: Session = Depends(get_db)):
     email: str = login_req.email
@@ -112,7 +124,6 @@ def login(login_req: LoginRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND, detail="Invalid credentials"
         )
     db_password = result.password_hash
-    print(db_password, "\n", password)
     if not verify_password(password, db_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -176,7 +187,7 @@ def register(register_req: RegisterRequest, db: Session = Depends(get_db)):
     )
 
 
-@app.post("query")
+@app.post("/query")
 def query_endpoint(query: Query):
     if not state["ready"]:
         return {"error": "System is not ready yet. Please wait"}
@@ -197,5 +208,12 @@ def query_endpoint(query: Query):
 
 
 if __name__ == "__main__":
-    # testing if the function is working or not
-    pass
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        reload_excludes=["system_init.py", "models/*"],
+    )

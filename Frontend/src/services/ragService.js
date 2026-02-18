@@ -49,7 +49,10 @@ class RAGService {
       const data = await res.json();
 
       if (!res.ok) {
-        return { success: false, message: data.detail || data.message || "Login failed" };
+        return {
+          success: false,
+          message: data.detail || data.message || "Login failed",
+        };
       }
 
       // Normalize — always guarantee { success: true, message }
@@ -74,7 +77,7 @@ class RAGService {
       const res = await fetch(`${BACKEND_URL}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: message }),
+        body: JSON.stringify({ message }),
       });
 
       if (!res.ok) {
