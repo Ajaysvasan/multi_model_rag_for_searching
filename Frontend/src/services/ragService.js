@@ -2,6 +2,71 @@ const BACKEND_URL = "http://localhost:8000";
 
 class RAGService {
   /**
+   * Register a new user via the backend.
+   */
+  async register(username, email, password) {
+    try {
+      const res = await fetch(`${BACKEND_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        return {
+          success: false,
+          message: data.detail || data.message || "Registration failed",
+        };
+      }
+
+      // Normalize — always guarantee { success: true, message }
+      return {
+        success: true,
+        message: data.message || "Account created successfully",
+      };
+    } catch (error) {
+      console.error("RAGService.register error:", error);
+      return {
+        success: false,
+        message: `Could not reach backend. ${error.message}`,
+      };
+    }
+  }
+
+  /**
+   * Login an existing user via the backend.
+   */
+  async login(email, password) {
+    try {
+      const res = await fetch(`${BACKEND_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        return { success: false, message: data.detail || data.message || "Login failed" };
+      }
+
+      // Normalize — always guarantee { success: true, message }
+      return {
+        success: true,
+        message: data.message || "Login successful",
+      };
+    } catch (error) {
+      console.error("RAGService.login error:", error);
+      return {
+        success: false,
+        message: `Could not reach backend. ${error.message}`,
+      };
+    }
+  }
+
+  /**
    * Send a text query to the RAG backend and return { text, sources }.
    */
   async getResponse(message) {

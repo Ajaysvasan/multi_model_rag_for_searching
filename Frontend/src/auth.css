@@ -1,0 +1,284 @@
+/* =========================================
+   RAGPT Auth Page — Premium Dark Theme
+   ========================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    height: 100%;
+    font-family: 'Inter', 'Segoe UI', Roboto, sans-serif;
+    overflow: hidden;
+    color: #f0f0f0;
+}
+
+/* ------- Animated gradient background ------- */
+.bg-gradient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e, #0f0c29);
+    background-size: 400% 400%;
+    animation: gradientShift 12s ease infinite;
+}
+
+@keyframes gradientShift {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+/* ------- Centred wrapper ------- */
+.auth-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+
+/* ------- Glassmorphism card ------- */
+.auth-card {
+    width: 100%;
+    max-width: 420px;
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 40px 36px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.35),
+        inset 0 0 60px rgba(255, 255, 255, 0.03);
+    animation: cardFadeIn 0.6s ease-out;
+}
+
+@keyframes cardFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(24px) scale(0.97);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ------- Brand ------- */
+.brand {
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.brand-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #10a37f, #1a7f64);
+    color: #fff;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 16px rgba(16, 163, 127, 0.35);
+}
+
+.brand h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #10a37f, #7dd3c6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.tagline {
+    font-size: 0.85rem;
+    color: #9ca3af;
+    margin-top: 4px;
+}
+
+/* ------- Status bar ------- */
+.status-bar {
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    margin-bottom: 18px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.status-bar.hidden {
+    display: none;
+}
+
+.status-bar.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-bar.success {
+    background: rgba(16, 163, 127, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 163, 127, 0.3);
+}
+
+/* ------- Form ------- */
+.auth-form {
+    display: none;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.auth-form.active {
+    display: flex;
+    animation: formSlideIn 0.35s ease-out;
+}
+
+@keyframes formSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.auth-form h2 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #e5e7eb;
+}
+
+/* ------- Input groups ------- */
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.input-group label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.input-group input {
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f0f0f0;
+    font-size: 0.95rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.input-group input::placeholder {
+    color: #6b7280;
+}
+
+.input-group input:focus {
+    border-color: #10a37f;
+    box-shadow: 0 0 0 3px rgba(16, 163, 127, 0.2);
+}
+
+/* ------- Primary button ------- */
+.btn-primary {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px 0;
+    border-radius: 12px;
+    border: none;
+    background: linear-gradient(135deg, #10a37f, #1a7f64);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    box-shadow: 0 4px 16px rgba(16, 163, 127, 0.3);
+}
+
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(16, 163, 127, 0.4);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
+}
+
+.btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* ------- Inline spinner ------- */
+.btn-loader {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+.btn-loader.hidden {
+    display: none;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ------- Switch text ------- */
+.switch-text {
+    text-align: center;
+    font-size: 0.85rem;
+    color: #9ca3af;
+}
+
+.switch-text a {
+    color: #10a37f;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease;
+}
+
+.switch-text a:hover {
+    color: #34d399;
+    text-decoration: underline;
+}

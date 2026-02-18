@@ -6,3 +6,5 @@ TODO:
 5. Use Postgresql
 6. Test the code
 7. Complete the command line interface
+8. Remove the existing chunk.db , metadata.db and make that in a way if the user is inserting from the frontend then it shouls be stored in the Postgresql and is the user is inesrting using TUI then it should be strored in local db (chunks.db and metadata.db)
+9. Also remove the exsisting history and convo memory

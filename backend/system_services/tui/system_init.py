@@ -1,4 +1,10 @@
 import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+project_dir = os.path.dirname(parent_dir)
+sys.path.append(project_dir)
 import uuid
 from platform import system
 
@@ -11,45 +17,45 @@ from data_layer.ingest.storage.conversation_memory import ConversationMemory
 from data_layer.ingest.storage.hnsw import HNSWIndex
 from generation_layer.generator import LlamaGenerator, MmapGenerator
 from history_layer.history import ConversationHistory
-from ingestion_pipeline import check_ingestion_exists, run_ingestion
 from retrieval_layer.retrieval_engine import QueryProcessing, RetrievalEngine
+
+from .ingestion_pipeline import check_ingestion_exists
 
 INDEX_PATH = Config.INDEX_PATH
 METADATA_DB_PATH = Config.METADATA_DB_PATH
 EMBED_MODEL_NAME = Config.EMBED_MODEL_NAME
 
 
+# only do the Initializing, dont't run the ingestion pipeline here if the files are not there throw exception
 def initialize_system(ingestion_config=None):
 
     os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(METADATA_DB_PATH), exist_ok=True)
 
-    print("=" * 60)
-    print("INITIALIZING RAG SYSTEM")
-    print("=" * 60)
-    print()
-
     print("[1/7] Loading embedding model...")
     embed_model = SentenceTransformer(EMBED_MODEL_NAME)
     dim = embed_model.get_sentence_embedding_dimension()
-    print(f"       ✓ {EMBED_MODEL_NAME} (dim={dim})")
+    print(f"{EMBED_MODEL_NAME} (dim={dim})")
 
-    if ingestion_config is not None:
-        print("\n[2/7] Running ingestion (config provided)...")
-        run_ingestion(embed_model, dim, ingestion_config)
-    elif not check_ingestion_exists():
-        from ingestion_menu import collect_ingestion_config
+    # if ingestion_config is not None:
+    #     print("\n[2/7] Running ingestion (config provided)...")
+    #     run_ingestion(embed_model, dim, ingestion_config)
+    if not check_ingestion_exists():
+        raise FileNotFoundError(
+            "The index and meta data store were not found. Ingest the data"
+        )
+        # from ingestion_menu import collect_ingestion_config
 
-        print("\n[2/7] No existing index found — first-time ingestion required.")
-        ingestion_config = collect_ingestion_config()
-        run_ingestion(embed_model, dim, ingestion_config)
+        # print("\n[2/7] No existing index found — first-time ingestion required.")
+        # ingestion_config = collect_ingestion_config()
+        # run_ingestion(embed_model, dim, ingestion_config)
     else:
         print("[2/7] ✓ Existing index found — skipping ingestion.")
 
     print("[3/7] Loading FAISS index...")
     index = HNSWIndex(dim=dim, index_path=INDEX_PATH)
     index.load()
-    print(f"       ✓ Loaded {index.index.ntotal} vectors")
+    print(f"Loaded {index.index.ntotal} vectors")
 
     print("[4/7] Loading metadata store...")
     metadata_store = ChunkMetadataStore(db_path=METADATA_DB_PATH)
@@ -69,9 +75,7 @@ def initialize_system(ingestion_config=None):
     )
     print(f"Initializing query pre processiong")
     query_preprocessor = QueryProcessing(conv_memory, embedding_model=embed_model)
-    print(
-        f"       ✓ Cache, history, and conversation memory ready (session={session_id})"
-    )
+    print(f"Cache, history, and conversation memory ready (session={session_id})")
 
     print("[6/7] Loading LLM model (this may take a while on first run)...")
 
@@ -103,7 +107,7 @@ def initialize_system(ingestion_config=None):
         print(f"       Downloading model: {Config.GENERATION_MODEL}")
         print("       This is a one-time download (~16GB)...")
     generator.load_model(show_progress=True)
-    print("       ✓ LLM ready")
+    print("LLM ready")
 
     print("[7/7] Building retrieval engine...")
     engine = RetrievalEngine(
@@ -120,8 +124,10 @@ def initialize_system(ingestion_config=None):
     print("       ✓ Engine ready")
 
     print()
-    print("=" * 60)
     print("SYSTEM READY")
-    print("=" * 60)
 
     return engine, metadata_store, conv_memory, session_id, query_preprocessor
+
+
+if __name__ == "__main__":
+    initialize_system()
