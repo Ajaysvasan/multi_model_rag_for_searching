@@ -1,16 +1,6 @@
 (function () {
   const ns = (window.App = window.App || {});
 
-  function applyCustomTheme(imagePath) {
-    document.body.classList.add("custom-theme");
-    const normalizedPath = imagePath.replace(/\\/g, "/");
-    const formattedPath = `local-resource://${normalizedPath}`;
-    document.documentElement.style.setProperty(
-      "--bg-image",
-      `url(${JSON.stringify(formattedPath)})`
-    );
-  }
-
   function init() {
     const settingsBtn = document.getElementById("settings-btn");
     const settingsMenu = document.getElementById("settings-menu");
@@ -27,33 +17,17 @@
         e.stopPropagation();
         const theme = button.getAttribute("data-theme");
 
-        if (theme === "custom") {
-          let imagePath = localStorage.getItem("customThemePath");
-          if (!imagePath) {
-            imagePath = await window.electronAPI.getDefaultImagePath();
-          } else {
-            const newPath = await window.electronAPI.selectThemeImage();
-            if (newPath) imagePath = newPath;
-          }
-
-          if (imagePath) {
-            applyCustomTheme(imagePath);
-            localStorage.setItem("theme", "custom");
-            localStorage.setItem("customThemePath", imagePath);
-          }
+        if (theme === "dark") {
+          document.body.classList.add("dark-mode");
+          document.body.classList.remove("light-mode");
+          localStorage.setItem("baseTheme", "dark");
         } else {
-          document.body.classList.remove("custom-theme");
-          if (theme === "dark") {
-            document.body.classList.add("dark-mode");
-            document.body.classList.remove("light-mode");
-            localStorage.setItem("baseTheme", "dark");
-          } else {
-            document.body.classList.add("light-mode");
-            document.body.classList.remove("dark-mode");
-            localStorage.setItem("baseTheme", "light");
-          }
-          localStorage.setItem("theme", theme);
+          document.body.classList.add("light-mode");
+          document.body.classList.remove("dark-mode");
+          localStorage.setItem("baseTheme", "light");
         }
+        localStorage.setItem("theme", theme);
+
         settingsMenu.classList.remove("show");
       });
     });
@@ -68,14 +42,7 @@
       document.body.classList.add("light-mode");
       document.body.classList.remove("dark-mode");
     }
-
-    if (savedTheme === "custom") {
-      const customPath = localStorage.getItem("customThemePath");
-      if (customPath) {
-        applyCustomTheme(customPath);
-      }
-    }
   }
 
-  ns.ThemeManager = { init, applyCustomTheme };
+  ns.ThemeManager = { init };
 })();

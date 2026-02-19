@@ -404,33 +404,7 @@ app.whenReady().then(() => {
     return { success: true };
   });
 
-  ipcMain.handle("theme:select-image", async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-      title: "Select Background Image",
-      properties: ["openFile"],
-      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp"] }],
-    });
 
-    if (canceled || filePaths.length === 0) return null;
-
-    const sourcePath = filePaths[0];
-    const themesDir = path.join(app.getPath("userData"), "themes");
-
-    if (!fs.existsSync(themesDir)) {
-      fs.mkdirSync(themesDir, { recursive: true });
-    }
-
-    const fileName = `custom-theme${path.extname(sourcePath)}`;
-    const destinationPath = path.join(themesDir, fileName);
-
-    fs.copyFileSync(sourcePath, destinationPath);
-
-    return destinationPath;
-  });
-
-  ipcMain.handle("theme:get-default-path", () => {
-    return path.join(__dirname, "optic.jpg");
-  });
 
   ipcMain.handle("file:open", async (event, filePath) => {
     try {

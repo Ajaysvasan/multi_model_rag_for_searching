@@ -28,8 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHistory: () => ipcRenderer.invoke('history:get-all'),
   deleteHistory: (sessionId) => ipcRenderer.invoke('history:delete', sessionId),
 
-  selectThemeImage: () => ipcRenderer.invoke('theme:select-image'),
-  getDefaultImagePath: () => ipcRenderer.invoke('theme:get-default-path'),
+
 
 
   openFile: (filePath) => ipcRenderer.invoke('file:open', filePath)

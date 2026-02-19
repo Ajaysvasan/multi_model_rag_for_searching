@@ -159,6 +159,40 @@ def login(login_req: LoginRequest, db: Session = Depends(get_db)):
     )
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    token_type: str
+    message: str
+    status_code: int
+
+
+@app.post("/auth/refresh/")
+def refresh_token(refresh_req: RefreshRequest, db: Session = Depends(get_db)):
+    try:
+        user_id_str = verify_refresh_token(refresh_req.refresh_token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    new_access_token = create_access_token(
+        user_id=user_id_str,
+        expires_delta=timedelta(minutes=int(Settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)),
+    )
+
+    return RefreshResponse(
+        access_token=new_access_token,
+        token_type="access",
+        message="Token refreshed successfully",
+        status_code=200,
+    )
+
+
 @app.post("/auth/register/")
 def register(register_req: RegisterRequest, db: Session = Depends(get_db)):
     email: str = register_req.email
@@ -227,7 +261,6 @@ def query_endpoint(query: Query):
 
     from retrieval_layer.retrieval_engine import QueryProcessing, RetrievalEngine
 
-    # Wrap pg services so they conform to the interface RetrievalEngine expects
     cache_adapter = _UserCacheAdapter(pg_cache, user_id)
     history_adapter = _UserHistoryAdapter(pg_history, user_id)
     metadata_adapter = _UserMetadataAdapter(pg_chunk_store, user_id)

@@ -26,7 +26,15 @@ def find_path(dir_name: str = "", root_path: str = ""):
 
 
 def main():
+    path = "/home"
+    target_dir = "multi_model_rag_for_searching"
+    directory_path = find_path(dir_name=target_dir, root_path=path)
+
+    directory_path = Path(directory_path) / "backend"
+
+    sys.path.append(str(directory_path))
     parser = argparse.ArgumentParser(description="TUI starter")
+
     subparser = parser.add_subparsers(dest="command", help="avaliable commands")
     subparser.add_parser("start", help="To start the AI and interact with it")
     ingest_parser = subparser.add_parser(
@@ -47,12 +55,6 @@ def main():
         args = parser.parse_args()
         match (args.command):
             case "start":
-                path = "/home"
-                target_dir = "multi_model_rag_for_searching"
-                directory_path = find_path(dir_name=target_dir, root_path=path)
-
-                directory_path = Path(directory_path) / "backend"
-                sys.path.append(str(directory_path))
                 start()
 
             case "ingest":
