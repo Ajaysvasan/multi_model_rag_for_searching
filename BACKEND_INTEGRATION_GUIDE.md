@@ -112,7 +112,7 @@
 
 **Your backend receives**:
 ```python
-POST /api/upload
+POST /upload
 {
   "filePaths": [
     "C:\\Users\\your-username\\Documents\\report.pdf",
@@ -126,7 +126,7 @@ POST /api/upload
 
 ```python
 # Your existing upload handler
-@app.route('/api/upload', methods=['POST'])
+@app.route('/upload', methods=['POST'])
 def upload():
     file_paths = request.json['filePaths']
 
@@ -156,7 +156,7 @@ def upload():
 
 ```python
 # Your existing query handler
-@app.route('/api/query', methods=['POST'])
+@app.route('/query', methods=['POST'])
 def query():
     user_query = request.json['query']
 
@@ -207,7 +207,7 @@ class RAGService {
   async getResponse(message) {
     try {
       // Replace with your backend URL
-      const response = await fetch('http://localhost:5000/api/query', {
+      const response = await fetch('http://localhost:8000/query', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -241,7 +241,7 @@ class RAGService {
     formData.append('audio', new Blob([audioBuffer]));
     formData.append('fileName', fileName);
 
-    const response = await fetch('http://localhost:5000/api/speech-query', {
+    const response = await fetch('http://localhost:8000/speech-query', {
       method: 'POST',
       body: formData
     });
@@ -250,7 +250,7 @@ class RAGService {
   }
 
   async uploadDocuments(filePaths, type) {
-    const response = await fetch('http://localhost:5000/api/upload', {
+    const response = await fetch('http://localhost:8000/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePaths, type })
@@ -265,7 +265,7 @@ module.exports = new RAGService();
 
 ### Configuration:
 
-1. **Backend URL**: Replace `http://localhost:5000` with your server address
+1. **Backend URL**: Replace `http://localhost:8000` with your server address
 2. **Authentication**: Add headers if your API requires auth
 3. **CORS**: Ensure your backend allows requests from `file://` origin (Electron)
 
@@ -446,9 +446,9 @@ Your backend should expose:
 
 | Endpoint | Method | Input | Output |
 |----------|--------|-------|--------|
-| `/api/upload` | POST | `{filePaths: string[], type: string}` | `{success: boolean}` |
-| `/api/query` | POST | `{query: string}` | `{text: string, sources: [{name, path}]}` |
-| `/api/speech-query` | POST | FormData with audio | `{text: string, sources: [{name, path}]}` |
+| `/upload` | POST | `{filePaths: string[], type: string}` | `{success: boolean}` |
+| `/query` | POST | `{query: string}` | `{text: string, sources: [{name, path}]}` |
+| `/speech-query` | POST | FormData with audio | `{text: string, sources: [{name, path}]}` |
 
 ---
 
@@ -479,7 +479,7 @@ Before going to production:
 
 ```bash
 # Test query endpoint
-curl -X POST http://localhost:5000/api/query \
+curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{"query": "test question"}'
 

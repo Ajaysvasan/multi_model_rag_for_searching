@@ -108,7 +108,13 @@ function getAllFiles(dirPath, arrayOfFiles) {
   return arrayOfFiles;
 }
 
-async function performUpload(type = "document") {
+// BACKEND INTEGRATION: The `showInSidebar` option controls whether uploaded files
+// appear in the UI's "Uploaded Documents" sidebar. Knowledge base uploads (via the
+// File menu) set this to false — they are ingested into the vector DB silently.
+// Chat uploads (via the paperclip button) set this to true so the user sees what
+// they attached. When integrating with a real backend, both paths still call
+// ragService.uploadDocuments() for ingestion; only the UI visibility differs.
+async function performUpload(type = "document", { showInSidebar = true } = {}) {
   let filters = [];
   let properties = ["openFile", "multiSelections"];
 
@@ -157,20 +163,31 @@ async function performUpload(type = "document") {
     if (result.success) {
       const uploadedFiles = [];
       finalFilePaths.forEach((filePath) => {
-        const doc = {
+        uploadedFiles.push({
           name: path.basename(filePath),
-          path: filePath,
           type: type === "folder" ? "document" : type,
-          date: new Date().toLocaleString(),
-        };
-        documentStorage.push(doc);
-        uploadedFiles.push({ name: doc.name, type: doc.type });
+        });
       });
 
-      saveToDisk(DOCUMENT_METADATA_FILE, documentStorage);
+      // Only add to the sidebar document list for chat-level uploads.
+      // Knowledge base uploads (File menu) are ingested into the vector DB
+      // but kept out of the sidebar to avoid cluttering it with bulk files.
+      if (showInSidebar) {
+        finalFilePaths.forEach((filePath) => {
+          const doc = {
+            name: path.basename(filePath),
+            path: filePath,
+            type: type === "folder" ? "document" : type,
+            date: new Date().toLocaleString(),
+          };
+          documentStorage.push(doc);
+        });
 
-      if (mainWindow) {
-        mainWindow.webContents.send("documents:refreshed");
+        saveToDisk(DOCUMENT_METADATA_FILE, documentStorage);
+
+        if (mainWindow) {
+          mainWindow.webContents.send("documents:refreshed");
+        }
       }
 
       return { ...result, uploadedFiles };
@@ -249,7 +266,7 @@ app.whenReady().then(() => {
       return response;
     } catch (error) {
       console.error("RAG Service Error:", error);
-      return "I'm sorry, I encountered an error processing your request.";
+      return { text: "I'm sorry, I encountered an error processing your request.", sources: [] };
     }
   });
 
@@ -262,7 +279,7 @@ app.whenReady().then(() => {
       return response;
     } catch (error) {
       console.error("Speech RAG Service Error:", error);
-      return "I'm sorry, I encountered an error processing your voice request.";
+      return { text: "I'm sorry, I encountered an error processing your voice request.", sources: [] };
     }
   });
 
@@ -402,17 +419,22 @@ function createMenu() {
       label: "File",
       submenu: [
         {
+          // Knowledge base ingestion — files go to the vector DB but do NOT
+          // appear in the sidebar "Uploaded Documents" list.
+          // BACKEND INTEGRATION: This still calls ragService.uploadDocuments()
+          // for ingestion; only the UI visibility is suppressed.
           label: "Upload File",
           accelerator: "CmdOrCtrl+O",
           click: async () => {
-            await performUpload("document");
+            await performUpload("document", { showInSidebar: false });
           },
         },
         {
+          // Knowledge base ingestion — entire folder ingested silently.
           label: "Upload Folder",
           accelerator: "CmdOrCtrl+Shift+O",
           click: async () => {
-            await performUpload("folder");
+            await performUpload("folder", { showInSidebar: false });
           },
         },
         { type: "separator" },
