@@ -147,12 +147,12 @@ class RAGService {
   /**
    * Upload document file paths to the backend for ingestion.
    */
-  async uploadDocuments(filePaths, type = "document") {
+  async uploadDocuments(filePaths, type = "document", access_token) {
     try {
       const res = await fetch(`${BACKEND_URL}/upload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filePaths, type }),
+        body: JSON.stringify({ filePaths, type, access_token }),
       });
 
       if (!res.ok) {

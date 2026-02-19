@@ -158,7 +158,12 @@ async function performUpload(type = "document", { showInSidebar = true } = {}) {
   }
 
   try {
-    const result = await ragService.uploadDocuments(finalFilePaths, type);
+    const access_token = localStorage.getItem("access_token");
+    const result = await ragService.uploadDocuments(
+      finalFilePaths,
+      type,
+      access_token
+    );
 
     if (result.success) {
       const uploadedFiles = [];
@@ -275,7 +280,10 @@ app.whenReady().then(() => {
       return await ragService.register(username, email, password);
     } catch (error) {
       console.error("Auth register error:", error);
-      return { success: false, message: "Registration failed. " + error.message };
+      return {
+        success: false,
+        message: "Registration failed. " + error.message,
+      };
     }
   });
 
@@ -477,4 +485,3 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
-
