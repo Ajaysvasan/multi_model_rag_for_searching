@@ -24,3 +24,7 @@ pyyaml
 pydantic
 fastapi
 pyinstaller
+passlib
+argon2_cffi
+pyjwt
+python-jose[cryptography]

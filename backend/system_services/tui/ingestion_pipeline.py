@@ -1,6 +1,11 @@
 import hashlib
 import os
 import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+project_dir = os.path.dirname(parent_dir)
+sys.path.append(project_dir)
 from pathlib import Path
 
 import numpy as np

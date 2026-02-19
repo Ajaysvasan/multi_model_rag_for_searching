@@ -208,7 +208,7 @@ const createWindow = () => {
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, "index.html"));
+  mainWindow.loadFile(path.join(__dirname, "auth.html"));
 
   mainWindow.webContents.on("context-menu", (e, props) => {
     const { x, y } = props;
@@ -257,6 +257,31 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error("Protocol error:", error);
       return new Response("File not found", { status: 404 });
+    }
+  });
+
+  // ---- Auth handlers ----
+  ipcMain.handle("auth:login", async (event, username, password) => {
+    try {
+      return await ragService.login(username, password);
+    } catch (error) {
+      console.error("Auth login error:", error);
+      return { success: false, message: "Login failed. " + error.message };
+    }
+  });
+
+  ipcMain.handle("auth:register", async (event, username, email, password) => {
+    try {
+      return await ragService.register(username, email, password);
+    } catch (error) {
+      console.error("Auth register error:", error);
+      return { success: false, message: "Registration failed. " + error.message };
+    }
+  });
+
+  ipcMain.handle("auth:navigate-chat", async () => {
+    if (mainWindow) {
+      mainWindow.loadFile(path.join(__dirname, "index.html"));
     }
   });
 

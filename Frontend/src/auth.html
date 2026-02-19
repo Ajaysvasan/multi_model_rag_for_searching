@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>RAGPT — Sign In</title>
+    <link rel="stylesheet" href="auth.css" />
+</head>
+
+<body>
+    <!-- animated gradient background -->
+    <div class="bg-gradient"></div>
+
+    <div class="auth-wrapper">
+        <!-- Glassmorphism card -->
+        <div class="auth-card">
+            <!-- Logo / brand -->
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24" width="32" height="32">
+                        <path fill="currentColor"
+                            d="M21,15.61L19.59,17L14.58,12L19.59,7L21,8.39L17.44,12L21,15.61M3,6H16V8H3V6M3,13V11H13V13H3M3,18V16H16V18H3Z" />
+                    </svg>
+                </div>
+                <h1>RAGPT</h1>
+                <p class="tagline">Your AI-powered document assistant</p>
+            </div>
+
+            <!-- Status message bar -->
+            <div id="status-bar" class="status-bar hidden"></div>
+
+            <!-- ===== LOGIN FORM ===== -->
+            <form id="login-form" class="auth-form active" autocomplete="off">
+                <h2>Welcome back</h2>
+
+                <div class="input-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" placeholder="Enter your email" required />
+                </div>
+
+                <div class="input-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" placeholder="Enter your password" required minlength="6"
+                        maxlength="200" />
+                </div>
+
+                <button type="submit" class="btn-primary" id="login-btn">
+                    <span class="btn-text">Sign In</span>
+                    <span class="btn-loader hidden"></span>
+                </button>
+
+                <p class="switch-text">
+                    Don't have an account?
+                    <a href="#" id="show-register">Create account</a>
+                </p>
+            </form>
+
+            <!-- ===== REGISTER FORM ===== -->
+            <form id="register-form" class="auth-form" autocomplete="off">
+                <h2>Create account</h2>
+
+                <div class="input-group">
+                    <label for="reg-username">Username</label>
+                    <input type="text" id="reg-username" placeholder="Choose a username" required minlength="3" />
+                </div>
+
+                <div class="input-group">
+                    <label for="reg-email">Email</label>
+                    <input type="email" id="reg-email" placeholder="Enter your email" required />
+                </div>
+
+                <div class="input-group">
+                    <label for="reg-password">Password</label>
+                    <input type="password" id="reg-password" placeholder="Create a password" required minlength="6"
+                        maxlength="200" />
+                </div>
+
+                <div class="input-group">
+                    <label for="reg-confirm">Confirm Password</label>
+                    <input type="password" id="reg-confirm" placeholder="Confirm your password" required minlength="6"
+                        maxlength="200" />
+                </div>
+
+                <button type="submit" class="btn-primary" id="register-btn">
+                    <span class="btn-text">Create Account</span>
+                    <span class="btn-loader hidden"></span>
+                </button>
+
+                <p class="switch-text">
+                    Already have an account?
+                    <a href="#" id="show-login">Sign in</a>
+                </p>
+            </form>
+        </div>
+    </div>
+
+    <script src="auth.js"></script>
+</body>
+
+</html>

@@ -2,13 +2,18 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
 
+  // Auth
+  login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
+  register: (username, email, password) => ipcRenderer.invoke('auth:register', username, email, password),
+  navigateToChat: () => ipcRenderer.invoke('auth:navigate-chat'),
+
   sendMessage: (message) => ipcRenderer.invoke('chat:send', message),
 
   sendSpeechQuery: (audioBuffer, fileName) => ipcRenderer.invoke('chat:send-speech', audioBuffer, fileName),
 
   uploadDocuments: (type) => ipcRenderer.invoke('documents:upload', type),
 
-  
+
   uploadWebcam: (imageBuffer, fileName) => ipcRenderer.invoke('documents:upload-webcam', imageBuffer, fileName),
 
 
