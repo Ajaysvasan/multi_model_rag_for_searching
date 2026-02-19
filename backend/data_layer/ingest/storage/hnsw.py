@@ -35,6 +35,9 @@ class HNSWIndex:
         # Track known IDs for idempotent ingestion
         self._known_ids: set[str] = set()
 
+    def __contains__(self, chunk_id: str) -> bool:
+        return chunk_id in self._known_ids
+
     def add(self, embeddings: list[EmbeddingRecord]) -> None:
         if not embeddings:
             return

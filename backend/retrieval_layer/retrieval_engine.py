@@ -396,6 +396,7 @@ class RetrievalEngine(QueryProcessing):
             citations = [
                 {
                     "id": c.citation_id,
+                    "chunk_id": c.chunk_id,
                     "source_path": c.source_path,
                     "chunk_text": c.chunk_text,
                     "start_offset": c.start_offset,

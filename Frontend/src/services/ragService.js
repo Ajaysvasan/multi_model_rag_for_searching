@@ -6,7 +6,7 @@ class RAGService {
    */
   async register(username, email, password) {
     try {
-      const res = await fetch(`${BACKEND_URL}/auth/register`, {
+      const res = await fetch(`${BACKEND_URL}/auth/register/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, email, password }),
@@ -40,7 +40,7 @@ class RAGService {
    */
   async login(email, password) {
     try {
-      const res = await fetch(`${BACKEND_URL}/auth/login`, {
+      const res = await fetch(`${BACKEND_URL}/auth/login/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -55,10 +55,14 @@ class RAGService {
         };
       }
 
-      // Normalize — always guarantee { success: true, message }
+      // Normalize — return tokens alongside success flag
       return {
         success: true,
         message: data.message || "Login successful",
+        body: {
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
+        },
       };
     } catch (error) {
       console.error("RAGService.login error:", error);
@@ -72,12 +76,12 @@ class RAGService {
   /**
    * Send a text query to the RAG backend and return { text, sources }.
    */
-  async getResponse(message) {
+  async getResponse(query, access_token) {
     try {
       const res = await fetch(`${BACKEND_URL}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ query, access_token }),
       });
 
       if (!res.ok) {
@@ -109,11 +113,14 @@ class RAGService {
   /**
    * Send a speech/audio buffer to the backend for STT + RAG processing.
    */
-  async processSpeechQuery(audioBuffer, fileName) {
+  async processSpeechQuery(audioBuffer, fileName, accessToken) {
     try {
       const formData = new FormData();
       formData.append("audio", new Blob([audioBuffer]), fileName);
       formData.append("fileName", fileName);
+      if (accessToken) {
+        formData.append("access_token", accessToken);
+      }
 
       const res = await fetch(`${BACKEND_URL}/speech-query`, {
         method: "POST",

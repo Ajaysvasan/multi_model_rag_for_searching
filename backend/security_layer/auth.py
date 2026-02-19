@@ -41,7 +41,7 @@ def create_access_token(user_id: str, expires_delta: timedelta | None = None):
 
 def verify_access_token(token: str):
     try:
-        decoded_token = jwt.decode(token, JWT_SECRET_KEY, algorithms=JWT_ALGORITHM)
+        decoded_token = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except ExpiredSignatureError:
         raise TokenExpiredError("The token has expired")
     except PyJWTError:
@@ -57,7 +57,7 @@ def verify_access_token(token: str):
 
 def verify_refresh_token(token: str):
     try:
-        decoded_token = jwt.decode(token, JWT_SECRET_KEY, algorithms=JWT_ALGORITHM)
+        decoded_token = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except ExpiredSignatureError:
         raise TokenExpiredError("The token has expired")
     except PyJWTError:

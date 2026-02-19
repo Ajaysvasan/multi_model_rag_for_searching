@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
   register: (username, email, password) => ipcRenderer.invoke('auth:register', username, email, password),
   navigateToChat: () => ipcRenderer.invoke('auth:navigate-chat'),
+  storeTokens: (tokens) => ipcRenderer.invoke('auth:store-tokens', tokens),
+  getAccessToken: () => ipcRenderer.invoke('auth:get-access-token'),
 
   sendMessage: (message) => ipcRenderer.invoke('chat:send', message),
 

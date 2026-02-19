@@ -74,8 +74,10 @@
         showStatus("Login successful! Redirecting…", "success");
         // Stop loading BEFORE navigating — the page is about to be destroyed
         //
-        localStorage.setItem("access_token", result.body.access_token);
-        localStorage.setItem("refresh_token", result.body.refresh_token);
+        window.electronAPI.storeTokens({
+          accessToken: result.body.access_token,
+          refreshToken: result.body.refresh_token,
+        });
         setLoading(loginForm, false);
         setTimeout(() => {
           window.electronAPI.navigateToChat();

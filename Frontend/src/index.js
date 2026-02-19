@@ -28,6 +28,8 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow;
+// In-memory token store (populated by renderer via IPC after login)
+let tokenStore = { accessToken: null, refreshToken: null };
 // BACKEND INTEGRATION: These in-memory arrays act as a local cache backed by
 // JSON files on disk. When a real backend is available, remove the local
 // persistence layer below and fetch/store data via your backend API instead.
@@ -158,11 +160,10 @@ async function performUpload(type = "document", { showInSidebar = true } = {}) {
   }
 
   try {
-    const access_token = localStorage.getItem("access_token");
     const result = await ragService.uploadDocuments(
       finalFilePaths,
       type,
-      access_token
+      tokenStore.accessToken
     );
 
     if (result.success) {
@@ -266,9 +267,15 @@ app.whenReady().then(() => {
   });
 
   // ---- Auth handlers ----
-  ipcMain.handle("auth:login", async (event, username, password) => {
+  ipcMain.handle("auth:login", async (event, email, password) => {
     try {
-      return await ragService.login(username, password);
+      const result = await ragService.login(email, password);
+      // If login succeeded, cache the tokens in main process memory
+      if (result && result.success && result.body) {
+        tokenStore.accessToken = result.body.access_token;
+        tokenStore.refreshToken = result.body.refresh_token;
+      }
+      return result;
     } catch (error) {
       console.error("Auth login error:", error);
       return { success: false, message: "Login failed. " + error.message };
@@ -293,9 +300,19 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle("auth:store-tokens", async (event, tokens) => {
+    tokenStore.accessToken = tokens.accessToken || null;
+    tokenStore.refreshToken = tokens.refreshToken || null;
+    return { success: true };
+  });
+
+  ipcMain.handle("auth:get-access-token", async () => {
+    return tokenStore.accessToken;
+  });
+
   ipcMain.handle("chat:send", async (event, message) => {
     try {
-      const response = await ragService.getResponse(message);
+      const response = await ragService.getResponse(message, tokenStore.accessToken);
       return response;
     } catch (error) {
       console.error("RAG Service Error:", error);
@@ -307,7 +324,8 @@ app.whenReady().then(() => {
     try {
       const response = await ragService.processSpeechQuery(
         audioBuffer,
-        fileName
+        fileName,
+        tokenStore.accessToken
       );
       return response;
     } catch (error) {
@@ -331,7 +349,7 @@ app.whenReady().then(() => {
         const tempPath = path.join(tempDir, fileName);
         fs.writeFileSync(tempPath, Buffer.from(imageBuffer));
 
-        const result = await ragService.uploadDocuments([tempPath], "image");
+        const result = await ragService.uploadDocuments([tempPath], "image", tokenStore.accessToken);
 
         if (result.success) {
           const doc = {

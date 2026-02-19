@@ -4,8 +4,8 @@ import datetime
 import os
 import sys
 from contextlib import asynccontextmanager
+from uuid import UUID
 
-import jwt
 from data_models.session import get_db
 from data_models.users import User
 from security_layer.hashing import hash_password, verify_password
@@ -18,8 +18,9 @@ sys.path.append(parent_dir)
 import asyncio
 import platform
 from datetime import timedelta
-from typing import List
+from typing import Dict, List
 
+import jwt
 from config import Config
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel
@@ -30,19 +31,18 @@ from security_layer.auth import (
     verify_refresh_token,
 )
 from sqlalchemy.orm import Session
+from system_services.server.ingestion_orchestrator import ingestion_pipeline
+from system_services.server.pg_chunk_store import PgChunkStore
 
 state = {
-    "engine": None,
-    "metadata_store": None,
-    "conv_memory": None,
-    "session_id": None,
-    "query_preprocessor": None,
+    "shared": None,
     "ready": False,
 }
 
 
 class Query(BaseModel):
     query: str
+    access_token: str
 
 
 class LoginRequest(BaseModel):
@@ -81,23 +81,14 @@ class DocsUploading(BaseModel):
 
 
 async def backend_init():
-
-    from system_services.tui.system_init import initialize_system
+    from system_services.server.system_init import load_shared_components
 
     if platform.system().lower() not in Config.OS:
         raise OSError(
-            f"The operating system {platform.system()} is not supported. Supporated Os list : {Config.OS}"
+            f"The operating system {platform.system()} is not supported. Supported OS list: {Config.OS}"
         )
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, initialize_system)
-
-    (
-        state["engine"],
-        state["metadata_store"],
-        state["conv_memory"],
-        state["session_id"],
-        state["query_preprocessor"],
-    ) = result
+    state["shared"] = await loop.run_in_executor(None, load_shared_components)
     state["ready"] = True
 
 
@@ -112,12 +103,27 @@ app = FastAPI(title="AI assistant API", lifespan=lifespan)
 
 @app.post("/upload")
 def ingest(upload_req: DocsUploading):
-    access_token = upload_req.access_token
-    decoded_token = jwt.decode(
-        access_token, Settings.JWT_SECRET_KEY, algorithms=Settings.JWT_ALGORITHM
-    )
-    for file in upload_req.filePaths:
-        print(file)
+    if not state["ready"]:
+        raise HTTPException(
+            status_code=503, detail="System is not ready yet. Please wait."
+        )
+
+    try:
+        user_id_str = verify_access_token(upload_req.access_token)
+    except Exception as e:
+        print(f"Auth failed in /upload: {e}")
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+
+    user_id = UUID(user_id_str)
+
+    # Process each path
+    results = []
+    for path_str in upload_req.filePaths:
+        res = ingestion_pipeline(user_id, path_str, state["shared"])
+        results.append(res)
+        print(f"Ingestion result for {path_str}: {res}")
+
+    return {"message": "Ingestion completed", "results": results}
 
 
 @app.post("/auth/login/")
@@ -196,21 +202,148 @@ def register(register_req: RegisterRequest, db: Session = Depends(get_db)):
 @app.post("/query")
 def query_endpoint(query: Query):
     if not state["ready"]:
-        return {"error": "System is not ready yet. Please wait"}
-    intent_query = state["query_preprocessor"].preprocess_query(query.query)
-    response = state["engine"].retrieve_and_generate(query, intent_query)
-    state["conv_memory"].add_turn(state["session_id"], "assistant", response.answer)
+        raise HTTPException(
+            status_code=503, detail="System is not ready yet. Please wait."
+        )
+
+    try:
+        user_id_str = verify_access_token(query.access_token)
+    except Exception as e:
+        print(f"Auth failed in /query: {e}")
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+
+    user_id = UUID(user_id_str)
+    shared = state["shared"]
+
+    embed_model = shared["embed_model"]
+    generator = shared["generator"]
+    faiss_manager = shared["faiss_manager"]
+    pg_cache = shared["pg_cache"]
+    pg_history = shared["pg_history"]
+    pg_conv_memory = shared["pg_conv_memory"]
+
+    user_index = faiss_manager.get_index(user_id)
+    pg_chunk_store = PgChunkStore()
+
+    from retrieval_layer.retrieval_engine import QueryProcessing, RetrievalEngine
+
+    # Wrap pg services so they conform to the interface RetrievalEngine expects
+    cache_adapter = _UserCacheAdapter(pg_cache, user_id)
+    history_adapter = _UserHistoryAdapter(pg_history, user_id)
+    metadata_adapter = _UserMetadataAdapter(pg_chunk_store, user_id)
+    conv_memory_adapter = _UserConvMemoryAdapter(pg_conv_memory, user_id)
+
+    query_preprocessor = QueryProcessing(
+        conversation_memory=conv_memory_adapter,
+        embedding_model=embed_model,
+    )
+
+    engine = RetrievalEngine(
+        cache=cache_adapter,
+        index=user_index,
+        embedding_model=embed_model,
+        history=history_adapter,
+        ann_top_k=Config.ANN_TOP_K,
+        history_enabled=True,
+        metadata_store=metadata_adapter,
+        generator=generator,
+        conversation_memory=conv_memory_adapter,
+    )
+
+    session_id = str(user_id)
+
+    conv_memory_adapter.add_turn(session_id, "user", query.query)
+    intent_query = query_preprocessor.preprocess_query(
+        query.query, session_id=session_id
+    )
+    response = engine.retrieve_and_generate(
+        query.query, intent_query, session_id=session_id
+    )
+    conv_memory_adapter.add_turn(session_id, "assistant", response.answer)
+
     sources = []
     if response.citations:
+        source_paths = pg_chunk_store.get_source_paths(
+            [c["chunk_id"] for c in response.citations if "chunk_id" in c], user_id
+        )
         for citation in response.citations:
-            source = citation["source_path"]
-            sources.append(source)
-    print(sources)
+            chunk_id = citation.get("chunk_id", "")
+            path = source_paths.get(chunk_id, citation.get("source_path", ""))
+            sources.append(path)
 
     return {
         "response": response.answer,
         "sources": sources,
     }
+
+
+class _UserCacheAdapter:
+    """Adapts PgTopicCache to the TopicCacheManager interface RetrievalEngine expects."""
+
+    def __init__(self, pg_cache, user_id: UUID):
+        self._pg = pg_cache
+        self._uid = user_id
+
+    def lookup(self, key):
+        self._pg.lookup(self._uid, key.topic_label)
+        return None
+
+    def insert_new(self, key, cached_chunk_ids=None):
+        self._pg.insert_new(self._uid, key.topic_label)
+
+
+class _UserHistoryAdapter:
+    """Adapts PgConversationHistory to the ConversationHistory interface."""
+
+    def __init__(self, pg_history, user_id: UUID):
+        self._pg = pg_history
+        self._uid = user_id
+
+    def find_similar(self, query_embedding):
+        return self._pg.find_similar(self._uid, query_embedding)
+
+    def add_or_update(self, topic_key, query_embedding, chunk_ids):
+        self._pg.add_or_update(
+            self._uid, topic_key.topic_label, query_embedding, chunk_ids
+        )
+
+
+class _UserMetadataAdapter:
+    """Adapts PgChunkStore to the ChunkMetadataStore interface."""
+
+    def __init__(self, pg_store, user_id: UUID):
+        self._pg = pg_store
+        self._uid = user_id
+
+    def get_by_ids(self, chunk_ids):
+        return self._pg.get_by_ids(chunk_ids, self._uid)
+
+    def count_chunks(self):
+        return 0
+
+    def has_chunk(self, chunk_id):
+        result = self._pg.get_by_ids([chunk_id], self._uid)
+        return len(result) > 0
+
+
+class _UserConvMemoryAdapter:
+    """Adapts PgConversationMemory to the ConversationMemory interface."""
+
+    def __init__(self, pg_mem, user_id: UUID):
+        self._pg = pg_mem
+        self._uid = user_id
+
+    def add_turn(self, session_id, role, content):
+        self._pg.add_turn(self._uid, session_id, role, content)
+
+    def get_context(self, session_id, max_turns=None):
+        return self._pg.get_context(self._uid, session_id, max_turns)
+
+    def get_recent_queries(self, session_id, max_queries=3):
+        return self._pg.get_recent_queries(self._uid, session_id, max_queries)
+
+    def close(self):
+        pass
 
 
 if __name__ == "__main__":
