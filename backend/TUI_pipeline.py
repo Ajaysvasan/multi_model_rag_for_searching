@@ -1,15 +1,13 @@
 import traceback
 
-from query_loop import run_query_loop
-from system_init import initialize_system
+from system_services.tui.query_loop import run_query_loop
+from system_services.tui.system_init import initialize_system
 
 
 def _ask_mode():
     """Top-level menu: ingest new data or chat."""
     print()
-    print("=" * 60)
     print("WHAT WOULD YOU LIKE TO DO?")
-    print("=" * 60)
     print("  1 → Ingest new data  (add files/folders to the knowledge base)")
     print("  2 → Chat             (query the existing knowledge base)")
     print()
@@ -22,7 +20,7 @@ def pipeline():
         mode = _ask_mode()
 
         if mode == "ingest":
-            from ingestion_menu import collect_ingestion_config
+            from system_services.tui.ingestion_menu import collect_ingestion_config
 
             ingestion_config = collect_ingestion_config()
             engine, metadata_store, conv_memory, session_id, query_preprocessor = (

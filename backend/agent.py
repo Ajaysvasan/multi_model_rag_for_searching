@@ -2,7 +2,11 @@
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
+
+from TUI_services.logger import write_logs
+from TUI_services.start import start
 
 
 class InvalidCommand(Exception):
@@ -23,27 +27,40 @@ def find_path(dir_name: str = "", root_path: str = ""):
 
 def main():
     parser = argparse.ArgumentParser(description="TUI starter")
-    parser.add_argument("start", type=str, help="To get use the agent using TUI")
-    parser.add_argument(
+    subparser = parser.add_subparsers(dest="command", help="avaliable commands")
+    subparser.add_parser("start", help="To start the AI and interact with it")
+    ingest_parser = subparser.add_parser(
         "ingest",
-        type=str,
-        help="To insert new data for the agent. If the name of the file or folder left empty then all the files will be taken as data",
+        help="To insert new data for the model by default it looks in all the directories for all the files",
     )
-    parser.add_argument("clear", type=str, help="To clear all the data.")
+    ingest_parser.add_argument(
+        "--path",
+        type=str,
+        help="To ingest file / files that are in a specific directories",
+    )
+    subparser.add_parser(
+        "blame",
+        help="To see the time taken by the system to initialize and execute a task.\nThe system must have been run atleast one time",
+    )
+    subparser.add_parser("clear", help="This command clears the data. ")
     try:
         args = parser.parse_args()
-        if args.start:
-            path = "/home"
-            target_dir = "multi_model_rag_for_searching"
-            directory_path = find_path(dir_name=target_dir, root_path=path)
+        match (args.command):
+            case "start":
+                path = "/home"
+                target_dir = "multi_model_rag_for_searching"
+                directory_path = find_path(dir_name=target_dir, root_path=path)
 
-            directory_path = Path(directory_path) / "backend"
-            sys.path.append(str(directory_path))
-            from TUI_pipeline import pipeline
+                directory_path = Path(directory_path) / "backend"
+                sys.path.append(str(directory_path))
+                start()
 
-            pipeline()
-        else:
-            raise InvalidCommand()
+            case "ingest":
+                pass
+            case "blame":
+                pass
+            case "clear":
+                pass
 
     except Exception as e:
         raise Exception(f"The following exception has occured {e}")
