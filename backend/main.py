@@ -294,7 +294,7 @@ def query_endpoint(query: Query):
     )
     conv_memory_adapter.add_turn(session_id, "assistant", response.answer)
 
-    sources = []
+    sources = set()
     if response.citations:
         source_paths = pg_chunk_store.get_source_paths(
             [c["chunk_id"] for c in response.citations if "chunk_id" in c], user_id
@@ -302,11 +302,11 @@ def query_endpoint(query: Query):
         for citation in response.citations:
             chunk_id = citation.get("chunk_id", "")
             path = source_paths.get(chunk_id, citation.get("source_path", ""))
-            sources.append(path)
+            sources.add(path)
 
     return {
         "response": response.answer,
-        "sources": sources,
+        "sources": list(sources),
     }
 
 
