@@ -140,7 +140,7 @@
 
 ### Store Path on Upload
 ```python
-@app.route('/api/upload', methods=['POST'])
+@app.route('/upload', methods=['POST'])
 def upload():
     file_paths = request.json['filePaths']
 
