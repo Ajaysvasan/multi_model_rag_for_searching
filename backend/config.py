@@ -44,6 +44,7 @@ class Config:
     GENERATION_MODEL_FILE = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # ~4.4GB
     MODELS_DIR = Path("models")
     USE_LOCAL_MODEL = True
+    OFFLINE_MODE = True
     DEFAULT_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
     API_URL = "https://api-inference.huggingface.co/models"
     DB_PATH = "data/index/cache_history.db"

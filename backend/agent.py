@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from TUI_services.blame import blame_command
+from TUI_services.clear import clear_data
 from TUI_services.ingest_command import ingest_command
 from TUI_services.logger import write_logs
 from TUI_services.start import start
@@ -69,7 +70,7 @@ def main():
             case "blame":
                 blame_command()
             case "clear":
-                pass
+                clear_data()
 
     except Exception as e:
         raise Exception(f"The following exception has occured {e}")

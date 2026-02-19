@@ -95,6 +95,14 @@ class LlamaGenerator:
         if self._is_loaded:
             return
 
+        # Enforce offline mode if configured
+        if getattr(Config, "OFFLINE_MODE", False):
+            os.environ["HF_HUB_OFFLINE"] = "1"
+            os.environ["TRANSFORMERS_OFFLINE"] = "1"
+            if not self.use_local:
+                logger.warning("Offline mode enabled but use_local is False. Forcing use_local=True.")
+                self.use_local = True
+
         if not self.use_local:
             if show_progress:
                 logger.info(f"Using HuggingFace API: {self.model_name}")

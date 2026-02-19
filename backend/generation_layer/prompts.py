@@ -64,10 +64,12 @@ def format_context_for_generation(
             text = text[:1000] + "..."
 
         source = chunk.get("source_path", "unknown")
+        modality = chunk.get("modality", "unknown").upper()
+        
         if include_source:
             source_name = source.split("/")[-1] if "/" in source else source
-            formatted_parts.append(f"[{i}] (Source: {source_name})\n{text}")
+            formatted_parts.append(f"[{i}] (Source: {source_name}, Type: {modality})\n{text}")
         else:
-            formatted_parts.append(f"[{i}]\n{text}")
+            formatted_parts.append(f"[{i}] (Type: {modality})\n{text}")
 
     return "\n\n---\n\n".join(formatted_parts)
