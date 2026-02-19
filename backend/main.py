@@ -5,6 +5,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
+import jwt
 from data_models.session import get_db
 from data_models.users import User
 from security_layer.hashing import hash_password, verify_password
@@ -76,6 +77,7 @@ class RegisterResponse(BaseModel):
 class DocsUploading(BaseModel):
     filePaths: List[str]
     type: str = "document"
+    access_token: str
 
 
 async def backend_init():
@@ -110,6 +112,10 @@ app = FastAPI(title="AI assistant API", lifespan=lifespan)
 
 @app.post("/upload")
 def ingest(upload_req: DocsUploading):
+    access_token = upload_req.access_token
+    decoded_token = jwt.decode(
+        access_token, Settings.JWT_SECRET_KEY, algorithms=Settings.JWT_ALGORITHM
+    )
     for file in upload_req.filePaths:
         print(file)
 
