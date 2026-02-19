@@ -17,7 +17,7 @@ def start():
         initialize_system()
     )
     end_time = time.time()
-    write_logs(start_time, end_time)
+    write_logs("init", start_time, end_time)
     try:
         while True:
             query = input(">")
@@ -31,7 +31,7 @@ def start():
                 query, intent_query, session_id=session_id
             )
             end_time = time.time()
-            write_logs(start_time, end_time)
+            write_logs("last_query", start_time, end_time)
             conv_memory.add_turn(session_id, "assistant", result.answer)
             print(f"Assistant: {result.answer}")
             sources = set()

@@ -19,14 +19,13 @@ from generation_layer.generator import LlamaGenerator, MmapGenerator
 from history_layer.history import ConversationHistory
 from retrieval_layer.retrieval_engine import QueryProcessing, RetrievalEngine
 
-from .ingestion_pipeline import check_ingestion_exists
+from .ingestion_pipeline import check_ingestion_exists, run_ingestion
 
 INDEX_PATH = Config.INDEX_PATH
 METADATA_DB_PATH = Config.METADATA_DB_PATH
 EMBED_MODEL_NAME = Config.EMBED_MODEL_NAME
 
 
-# only do the Initializing, dont't run the ingestion pipeline here if the files are not there throw exception
 def initialize_system(ingestion_config=None):
 
     os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
@@ -37,18 +36,15 @@ def initialize_system(ingestion_config=None):
     dim = embed_model.get_sentence_embedding_dimension()
     print(f"{EMBED_MODEL_NAME} (dim={dim})")
 
-    # if ingestion_config is not None:
-    #     print("\n[2/7] Running ingestion (config provided)...")
-    #     run_ingestion(embed_model, dim, ingestion_config)
-    if not check_ingestion_exists():
-        raise FileNotFoundError(
-            "The index and meta data store were not found. Ingest the data"
-        )
-        # from ingestion_menu import collect_ingestion_config
+    if ingestion_config is not None:
+        print("\n[2/7] Running ingestion (config provided)...")
+        run_ingestion(embed_model, dim, ingestion_config)
+    elif not check_ingestion_exists():
+        from ingestion_menu import collect_ingestion_config
 
-        # print("\n[2/7] No existing index found — first-time ingestion required.")
-        # ingestion_config = collect_ingestion_config()
-        # run_ingestion(embed_model, dim, ingestion_config)
+        print("\n[2/7] No existing index found — first-time ingestion required.")
+        ingestion_config = collect_ingestion_config()
+        run_ingestion(embed_model, dim, ingestion_config)
     else:
         print("[2/7] ✓ Existing index found — skipping ingestion.")
 

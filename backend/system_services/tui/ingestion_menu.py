@@ -12,7 +12,7 @@ def _validate_path(path: Path, label: str) -> Path:
     return resolved
 
 
-def collect_ingestion_config() -> dict:
+def collect_ingestion_config(raw: str = "") -> dict:
     print("\n" + "=" * 60)
     print("SELECT DATA TYPES TO INGEST")
     print("=" * 60)
@@ -23,7 +23,9 @@ def collect_ingestion_config() -> dict:
     print("Enter your choices separated by commas  (e.g.  1,2  or  1,2,3)")
     print("Press Enter with no input to default to text only.")
 
-    raw = input("\nYour choices: ").strip()
+    if raw == "":
+        raw = input("\nYour choices: ").strip()
+
     if not raw:
         choices = {1}
     else:

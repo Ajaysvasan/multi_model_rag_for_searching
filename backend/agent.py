@@ -5,6 +5,8 @@ import sys
 import time
 from pathlib import Path
 
+from TUI_services.blame import blame_command
+from TUI_services.ingest_command import ingest_command
 from TUI_services.logger import write_logs
 from TUI_services.start import start
 
@@ -58,9 +60,14 @@ def main():
                 start()
 
             case "ingest":
-                pass
+                path = args.path
+                if not path:
+                    ingest_command()
+                else:
+                    ingest_command(path_flag=False, source_path=path)
+
             case "blame":
-                pass
+                blame_command()
             case "clear":
                 pass
 

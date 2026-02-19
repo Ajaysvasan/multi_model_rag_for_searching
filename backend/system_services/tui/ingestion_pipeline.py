@@ -91,7 +91,6 @@ def run_ingestion(model, dim: int, ingestion_config: dict) -> HNSWIndex:
     embedding_records = []
     metadata_rows = []
 
-    # ── Text ingestion ──────────────────────────────────────────
     text_path = ingestion_config.get("text")
     if text_path:
         print(f"Loading text files from: {text_path}")
