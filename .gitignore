@@ -214,3 +214,5 @@ models/
 bin/
 backend/third_party/
 agent
+logs
+log
