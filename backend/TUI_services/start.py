@@ -8,11 +8,14 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
+from data_layer.ingest.Text_files_processing.text_extractor import TextExtractor
+
 from .logger import write_logs
 
 
 def start():
     start_time = time.time()
+    extractor = TextExtractor()
     engine, metadata_store, conv_memory, session_id, query_preprocessor = (
         initialize_system()
     )
@@ -43,6 +46,9 @@ def start():
 
             print(f"The sources are")
             for source in sources:
-                print(f"{source}\n")
+                extention = source.split(".")[-1]
+                if extention in ["pdf", "docs", "docx", "doc", "txt"]:
+                    extracted_text = extractor.extract_text_from_file(source)
+                print(f"{source}\n{extracted_text[:300]}...\n")
     except KeyboardInterrupt:
         print("Bye!")
