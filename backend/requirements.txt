@@ -28,3 +28,4 @@ passlib
 argon2_cffi
 pyjwt
 python-jose[cryptography]
+uvicorn

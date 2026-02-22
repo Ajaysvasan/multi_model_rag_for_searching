@@ -1,28 +1,38 @@
 version: '3.8'
 
 services:
-  rag-system:
-    build: .
-    container_name: multi-model-rag
-    
-    # GPU support (uncomment for NVIDIA GPU)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    ports:
+      - "8000:8000"
     volumes:
-      - ./backend/models:/app/backend/models
-      - ./backend/data:/app/backend/data
-      - ./backend/logs:/app/backend/logs
-    
+      - ./backend:/app
+      - backend_data:/app/data
+      - backend_models:/app/models
     environment:
-      - HF_TOKEN=${HF_TOKEN:-}
       - PYTHONUNBUFFERED=1
-    
-    stdin_open: true
-    tty: true
     restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    container_name: rag-frontend
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - ./Frontend:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${HOME}/.Xauthority:/root/.Xauthority
+    depends_on:
+      - backend
+    command: npm start
+
+volumes:
+  backend_data:
+  backend_models:
+
