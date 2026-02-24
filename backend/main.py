@@ -21,16 +21,21 @@ from datetime import timedelta
 from typing import Dict, List
 
 import jwt
-from config import Config
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from AdpaterModule.CacheAdapter import _UserCacheAdapter
+from AdpaterModule.ConvMemoryAdapter import _UserConvMemoryAdapter
+from AdpaterModule.HistoryAdapter import _UserHistoryAdapter
+from AdpaterModule.MetaDataAdapter import _UserMetadataAdapter
+from config import Config
 from security_layer.auth import (
     create_access_token,
     create_session_token,
     verify_access_token,
     verify_refresh_token,
 )
-from sqlalchemy.orm import Session
 from system_services.server.ingestion_orchestrator import ingestion_pipeline
 from system_services.server.pg_chunk_store import PgChunkStore
 
@@ -308,75 +313,6 @@ def query_endpoint(query: Query):
         "response": response.answer,
         "sources": list(sources),
     }
-
-
-class _UserCacheAdapter:
-    """Adapts PgTopicCache to the TopicCacheManager interface RetrievalEngine expects."""
-
-    def __init__(self, pg_cache, user_id: UUID):
-        self._pg = pg_cache
-        self._uid = user_id
-
-    def lookup(self, key):
-        self._pg.lookup(self._uid, key.topic_label)
-        return None
-
-    def insert_new(self, key, cached_chunk_ids=None):
-        self._pg.insert_new(self._uid, key.topic_label)
-
-
-class _UserHistoryAdapter:
-    """Adapts PgConversationHistory to the ConversationHistory interface."""
-
-    def __init__(self, pg_history, user_id: UUID):
-        self._pg = pg_history
-        self._uid = user_id
-
-    def find_similar(self, query_embedding):
-        return self._pg.find_similar(self._uid, query_embedding)
-
-    def add_or_update(self, topic_key, query_embedding, chunk_ids):
-        self._pg.add_or_update(
-            self._uid, topic_key.topic_label, query_embedding, chunk_ids
-        )
-
-
-class _UserMetadataAdapter:
-    """Adapts PgChunkStore to the ChunkMetadataStore interface."""
-
-    def __init__(self, pg_store, user_id: UUID):
-        self._pg = pg_store
-        self._uid = user_id
-
-    def get_by_ids(self, chunk_ids):
-        return self._pg.get_by_ids(chunk_ids, self._uid)
-
-    def count_chunks(self):
-        return 0
-
-    def has_chunk(self, chunk_id):
-        result = self._pg.get_by_ids([chunk_id], self._uid)
-        return len(result) > 0
-
-
-class _UserConvMemoryAdapter:
-    """Adapts PgConversationMemory to the ConversationMemory interface."""
-
-    def __init__(self, pg_mem, user_id: UUID):
-        self._pg = pg_mem
-        self._uid = user_id
-
-    def add_turn(self, session_id, role, content):
-        self._pg.add_turn(self._uid, session_id, role, content)
-
-    def get_context(self, session_id, max_turns=None):
-        return self._pg.get_context(self._uid, session_id, max_turns)
-
-    def get_recent_queries(self, session_id, max_queries=3):
-        return self._pg.get_recent_queries(self._uid, session_id, max_queries)
-
-    def close(self):
-        pass
 
 
 if __name__ == "__main__":
