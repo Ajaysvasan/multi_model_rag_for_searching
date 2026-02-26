@@ -3,3 +3,4 @@ TODO:
 2. Clean up the main.py file it looks messy right now
 3. Do the mode feature
 4. Try to add in some new feature or layer to it
+5. Implement logger funtion 
