@@ -1,3 +1,5 @@
 TODO:
 1. Do a clean up funtion for the model
 2. Clean up the main.py file it looks messy right now
+3. Do the mode feature
+4. Try to add in some new feature or layer to it

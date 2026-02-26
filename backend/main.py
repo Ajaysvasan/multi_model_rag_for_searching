@@ -4,6 +4,7 @@ import datetime
 import os
 import sys
 from contextlib import asynccontextmanager
+from re import sub
 from uuid import UUID
 
 from data_models.session import get_db
@@ -15,6 +16,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
+import argparse
 import asyncio
 import platform
 from datetime import timedelta
@@ -38,6 +40,15 @@ from security_layer.auth import (
 )
 from system_services.server.ingestion_orchestrator import ingestion_pipeline
 from system_services.server.pg_chunk_store import PgChunkStore
+
+parser = argparse.ArgumentParser(description="Mode")
+subparser = parser.add_subparsers(dest="command", help="avaliable commands")
+subparser.add_parser(
+    "fsearch", help="To make the RAG To work as a multimodal file searching model"
+)
+subparser.add_parser("bot", help="To make the RAG to work as a medical chat bot")
+
+args = parser.parse_args()
 
 state = {
     "shared": None,
