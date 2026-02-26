@@ -4,3 +4,6 @@ TODO:
 3. Do the mode feature
 4. Try to add in some new feature or layer to it
 5. Implement logger funtion 
+6. Might implement core features in the Java like job scheduling , thread pools, event driven task management etc but that is for another day
+7. Go with low parameter model
+8. Extend the C++ layer and fix all the critical bugs in it 
