@@ -61,6 +61,7 @@ class LlamaGenerator:
         models_dir: str = "",
         use_local: bool = None,
         api_token: str = "",
+        mode: str = "fsearch",
     ):
         self.model_name = model_name or getattr(
             Config, "GENERATION_MODEL", self.DEFAULT_MODEL
@@ -82,6 +83,7 @@ class LlamaGenerator:
 
         self.model = None
         self._is_loaded = False
+        self, mode = mode
 
     def _get_model_path(self) -> Path:
         return self.models_dir / self.model_file
@@ -100,7 +102,9 @@ class LlamaGenerator:
             os.environ["HF_HUB_OFFLINE"] = "1"
             os.environ["TRANSFORMERS_OFFLINE"] = "1"
             if not self.use_local:
-                logger.warning("Offline mode enabled but use_local is False. Forcing use_local=True.")
+                logger.warning(
+                    "Offline mode enabled but use_local is False. Forcing use_local=True."
+                )
                 self.use_local = True
 
         if not self.use_local:
@@ -319,8 +323,10 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
             # If the LLM refused to answer, return with no citations
             if self._is_refusal(cleaned_text):
                 return GenerationResult(
-                    answer=cleaned_text, citations=[],
-                    raw_response=raw_text, model_used=self.model_name,
+                    answer=cleaned_text,
+                    citations=[],
+                    raw_response=raw_text,
+                    model_used=self.model_name,
                     success=True,
                 )
 
@@ -567,8 +573,10 @@ class MmapGenerator:
 
             if LlamaGenerator._is_refusal(cleaned_text):
                 return GenerationResult(
-                    answer=cleaned_text, citations=[],
-                    raw_response=raw_text, model_used=self.model_name,
+                    answer=cleaned_text,
+                    citations=[],
+                    raw_response=raw_text,
+                    model_used=self.model_name,
                     success=True,
                 )
 
