@@ -4,7 +4,6 @@ import datetime
 import os
 import sys
 from contextlib import asynccontextmanager
-from re import sub
 from uuid import UUID
 
 from data_models.session import get_db
@@ -20,9 +19,8 @@ import argparse
 import asyncio
 import platform
 from datetime import timedelta
-from typing import Dict, List
+from typing import List
 
-import jwt
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

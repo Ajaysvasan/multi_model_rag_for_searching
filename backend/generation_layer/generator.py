@@ -61,7 +61,6 @@ class LlamaGenerator:
         models_dir: str = "",
         use_local: bool = None,
         api_token: str = "",
-        mode: str = "fsearch",
     ):
         self.model_name = model_name or getattr(
             Config, "GENERATION_MODEL", self.DEFAULT_MODEL
@@ -83,7 +82,6 @@ class LlamaGenerator:
 
         self.model = None
         self._is_loaded = False
-        self, mode = mode
 
     def _get_model_path(self) -> Path:
         return self.models_dir / self.model_file

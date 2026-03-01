@@ -1,9 +1,14 @@
 TODO:
+Critical Changes:
 1. Do a clean up funtion for the model
-2. Clean up the main.py file it looks messy right now
-3. Do the mode feature
-4. Try to add in some new feature or layer to it
-5. Implement logger funtion 
-6. Might implement core features in the Java like job scheduling , thread pools, event driven task management etc but that is for another day
-7. Go with low parameter model
-8. Extend the C++ layer and fix all the critical bugs in it 
+2. The model is not responding as intented fix that
+3. Extend the C++ layer and fix all the critical bugs in it 
+4. Maybe use C++ for the running the model and getting response from it 
+
+Minor changes:
+1. Clean up the main.py file it looks messy right now
+2. Do the mode feature
+3. Try to add in some new feature or layer to it
+4. Implement logger funtion 
+5. Might implement core features in the Java like job scheduling , thread pools, event driven task management etc but that is for another day
+6. Go with low parameter model
