@@ -61,7 +61,9 @@ def main():
                 start()
 
             case "ingest":
+
                 path = args.path
+                print(f"ingest command received path : {path}")
                 if not path:
                     ingest_command()
                 else:
