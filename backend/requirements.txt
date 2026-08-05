@@ -29,3 +29,8 @@ argon2_cffi
 pyjwt
 python-jose[cryptography]
 uvicorn
+pytest
+pytest-md
+pytest-benchmark
+psutil
+scikit-learn

@@ -40,12 +40,12 @@ class Config:
     MIN_RELEVANCE_SCORE = 0.15
     MAX_RETRIES = 2
 
-    GENERATION_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
-    GENERATION_MODEL_FILE = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # ~4.4GB
+    GENERATION_MODEL = "TheBloke/stablelm-zephyr-3b-GGUF"
+    GENERATION_MODEL_FILE = "stablelm-zephyr-3b.Q4_K_M.gguf"  # ~1.8GB
     MODELS_DIR = Path("models")
     USE_LOCAL_MODEL = True
     OFFLINE_MODE = True
-    DEFAULT_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+    DEFAULT_MODEL = "TheBloke/stablelm-zephyr-3b-GGUF"
     API_URL = "https://api-inference.huggingface.co/models"
     DB_PATH = "data/index/cache_history.db"
     # C++ compiled binayr path for LLM inferenc (if using local model on linux/macos)

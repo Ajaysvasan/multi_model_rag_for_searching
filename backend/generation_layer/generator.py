@@ -66,7 +66,7 @@ class LlamaGenerator:
             Config, "GENERATION_MODEL", self.DEFAULT_MODEL
         )
         self.model_file = getattr(
-            Config, "GENERATION_MODEL_FILE", "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+            Config, "GENERATION_MODEL_FILE", "stablelm-zephyr-3b.Q4_K_M.gguf"
         )
         self.models_dir = Path(models_dir or getattr(Config, "MODELS_DIR", "models"))
         self.use_local = (
@@ -383,7 +383,7 @@ class MmapGenerator:
         model_file = getattr(
             Config,
             "GENERATION_MODEL_FILE",
-            "mistral-7b-instruct-v0.2.Q4_K_M.gguf",
+            "stablelm-zephyr-3b.Q4_K_M.gguf",
         )
 
         # backend binary — resolve relative paths against backend/
