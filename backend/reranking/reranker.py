@@ -37,7 +37,7 @@ class CrossEncoderReranker:
     def __init__(
         self,
         model_name: str = "",
-        min_score: float = 0.0,
+        min_score: float = 0.3,
         top_k: int = 0,
     ):
         self.model_name = model_name or getattr(

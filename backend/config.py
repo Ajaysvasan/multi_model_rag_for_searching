@@ -19,7 +19,7 @@ class Config:
     CHUNK_OVERLAP = 50  # Reduced from 100 proportionally
 
     EMBEDDING_BATCH_SIZE = 64
-    ANN_TOP_K = 5
+    ANN_TOP_K = 10
     METADATA_DB_PATH = Path("data/index/chunks.db")
 
     L1_CAPACITY = 32
@@ -37,15 +37,15 @@ class Config:
     RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     RERANK_TOP_K = 5
 
-    MIN_RELEVANCE_SCORE = 0.15
+    MIN_RELEVANCE_SCORE = 0.25
     MAX_RETRIES = 2
 
-    GENERATION_MODEL = "TheBloke/stablelm-zephyr-3b-GGUF"
-    GENERATION_MODEL_FILE = "stablelm-zephyr-3b.Q4_K_M.gguf"  # ~1.8GB
+    GENERATION_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+    GENERATION_MODEL_FILE = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"  # ~4.4GB
     MODELS_DIR = Path("models")
     USE_LOCAL_MODEL = True
     OFFLINE_MODE = True
-    DEFAULT_MODEL = "TheBloke/stablelm-zephyr-3b-GGUF"
+    DEFAULT_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
     API_URL = "https://api-inference.huggingface.co/models"
     DB_PATH = "data/index/cache_history.db"
     # C++ compiled binayr path for LLM inferenc (if using local model on linux/macos)

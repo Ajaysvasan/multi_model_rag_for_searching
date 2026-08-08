@@ -68,8 +68,16 @@ def format_context_for_generation(
         
         if include_source:
             source_name = source.split("/")[-1] if "/" in source else source
-            formatted_parts.append(f"[{i}] (Source: {source_name}, Type: {modality})\n{text}")
+            formatted_parts.append(
+                f"=== PASSAGE [{i}] ==="
+                f"\nSource: {source_name} | Type: {modality}"
+                f"\n{text}"
+            )
         else:
-            formatted_parts.append(f"[{i}] (Type: {modality})\n{text}")
+            formatted_parts.append(
+                f"=== PASSAGE [{i}] ==="
+                f"\nType: {modality}"
+                f"\n{text}"
+            )
 
-    return "\n\n---\n\n".join(formatted_parts)
+    return "\n\n".join(formatted_parts)

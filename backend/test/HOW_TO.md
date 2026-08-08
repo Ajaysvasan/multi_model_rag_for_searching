@@ -1,42 +1,44 @@
-# Test Execution Guide
+# Testing Guide
 
-Welcome to the automated testing suite for this project. This guide will walk you through how to execute both module-level and project-level tests using `pytest`.
+This directory contains the test suite for the Multi-Modal RAG backend. We use `pytest` as our testing framework.
 
 ## Prerequisites
 
-Ensure you have installed all the necessary dependencies by running:
+Ensure you have installed the testing dependencies, generally included in your main `requirements.txt` or a separate `requirements-dev.txt`:
 ```bash
-pip install -r requirements.txt
+pip install pytest pytest-asyncio httpx
 ```
-*(Note: `pytest` and `pytest-md` have been added to `requirements.txt` to support testing and markdown report generation.)*
 
 ## Test Structure
 
-- **`module_testing/`**: Contains unit tests isolated to individual modules (e.g., `data_layer`, `security_layer`, etc.).
-- **`project_testing/`**: Contains end-to-end integration tests that ensure all modules work together correctly.
-- **`reports.md`**: Each test directory generates a `reports.md` file which logs the test outputs for review.
+The tests are categorized into two main folders:
+
+1. **`module_testing/`**: Contains unit tests for individual components and modules (e.g., cache tiers, tokenizers, vector stores).
+2. **`project_testing/`**: Contains end-to-end integration tests, system-level flows, and stress tests ensuring all parts work together correctly.
+
+*Note: Tests involve generating inferences using the **Mistral-7B-Instruct-v0.2** model.*
 
 ## How to Run Tests
 
 ### Running All Tests
-To run all tests and see the output in the console:
+To execute the entire test suite across all modules and projects:
 ```bash
-python -m pytest test/
+pytest test/ -v
 ```
 
-### Running Module-Specific Tests
-To run tests for a specific module (e.g., `data_layer`) and save the results to its `reports.md`:
+### Running Project Tests Specifically
+To run the integration and system tests:
 ```bash
-python -m pytest test/module_testing/data_layer/ -v > test/module_testing/data_layer/reports.md
+pytest test/project_testing/ -v
 ```
 
-### Running Project-Level Tests
-To run the full project tests and save the results:
+**Normal Tests vs Stress Tests:**
+Inside `project_testing/`, some tests simulate high load, concurrent users, or large data volumes (stress testing). If these are marked, you can run them specifically, or run everything together using the command above.
+
+### Generating Reports
+To generate a comprehensive markdown report (useful for CI/CD or documentation), you can use pytest reporting plugins (e.g., `pytest-md` if installed), or pipe the output:
 ```bash
-python -m pytest test/project_testing/ -v > test/project_testing/reports.md
+pytest test/ -v > reports.md
+# Or if using a specific markdown plugin:
+pytest test/ --md=reports.md
 ```
-
-### Generating Markdown Reports Automatically
-If you are using `pytest-md`, you can also automatically generate markdown reports using its plugins if configured in your pytest setup.
-
-Happy testing!

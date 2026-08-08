@@ -66,7 +66,7 @@ class LlamaGenerator:
             Config, "GENERATION_MODEL", self.DEFAULT_MODEL
         )
         self.model_file = getattr(
-            Config, "GENERATION_MODEL_FILE", "stablelm-zephyr-3b.Q4_K_M.gguf"
+            Config, "GENERATION_MODEL_FILE", "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
         )
         self.models_dir = Path(models_dir or getattr(Config, "MODELS_DIR", "models"))
         self.use_local = (
@@ -210,6 +210,18 @@ class LlamaGenerator:
         return any(p in lower for p in LlamaGenerator._REFUSAL_PHRASES)
 
     @staticmethod
+    def _extract_cited_indices(text: str) -> set:
+        """Extract citation indices [1], [2], etc. from generated text.
+
+        Returns a set of integers representing which source passages the
+        model actually referenced in its answer.  This is used to filter
+        the citation list so that only *truly cited* chunks are returned,
+        which dramatically improves citation precision.
+        """
+        matches = re.findall(r'\[(\d+)\]', text)
+        return {int(m) for m in matches}
+
+    @staticmethod
     def _clean_response(text: str) -> str:
         """Post-process to remove hallucinated references/URLs."""
         for marker in [
@@ -280,21 +292,24 @@ class LlamaGenerator:
         system_message = """You are a factual Q&A assistant. Answer ONLY from the provided context.
 STRICT RULES:
 1. Use ONLY facts stated in the context below — nothing else.
-2. Cite sources inline as [1], [2], etc.
-3. If the context lacks sufficient information, say ONLY: "I could not find relevant information in the available sources." Do NOT cite any source numbers or file names.
-4. Be concise. Do NOT pad your answer.
-5. NEVER invent or guess URLs, links, dates, statistics, or references.
-6. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.
-7. Do NOT add References, Sources, Bibliography, or Citation sections.
-8. Do NOT generate content beyond what the context provides.
-9. If NONE of the context passages relate to the question, do NOT cite any sources — respond only with the refusal message from rule 3."""
+2. You MUST cite sources inline as [1], [2], etc. for EVERY factual claim.
+3. You MUST cite ALL context passages that contain information relevant to the question — do not skip any relevant passage.
+4. If the context lacks sufficient information, say ONLY: "I could not find relevant information in the available sources." Do NOT cite any source numbers or file names.
+5. Be concise. Do NOT pad your answer.
+6. NEVER invent or guess URLs, links, dates, statistics, or references.
+7. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.
+8. Do NOT add References, Sources, Bibliography, or Citation sections.
+9. Do NOT generate content beyond what the context provides.
+10. If NONE of the context passages relate to the question, do NOT cite any sources — respond only with the refusal message from rule 4.
+11. CRITICAL: Every factual statement MUST include at least one inline citation. Missing a citation is unacceptable.
+12. CRITICAL: If a passage is relevant, you MUST cite it. Omitting a relevant passage citation is unacceptable."""
 
         user_message = f"""CONTEXT:
 {context}
 
 QUESTION: {query}
 
-Answer the question using ONLY the context above. Use inline [1], [2] citations:"""
+Answer the question using ONLY the context above. You MUST cite every relevant passage with inline [1], [2], etc. citations. Every claim needs a citation:"""
 
         if conversation_context:
             history_lines = []
@@ -328,11 +343,19 @@ Answer the question using ONLY the context above. Use inline [1], [2] citations:
                     success=True,
                 )
 
+            # Only include citations for chunks the model actually referenced
+            cited_indices = self._extract_cited_indices(cleaned_text)
+
             citations = []
             for i, chunk in enumerate(valid_chunks[:5]):
+                citation_id = i + 1
+                # If the model cited specific sources, only include those;
+                # if it cited nothing (edge case), include all as fallback.
+                if cited_indices and citation_id not in cited_indices:
+                    continue
                 citations.append(
                     Citation(
-                        citation_id=i + 1,
+                        citation_id=citation_id,
                         chunk_id=chunk.get("chunk_id", f"chunk_{i}"),
                         source_path=chunk.get("source_path", "unknown"),
                         chunk_text=chunk.get("chunk_text", "")[:200],
@@ -383,7 +406,7 @@ class MmapGenerator:
         model_file = getattr(
             Config,
             "GENERATION_MODEL_FILE",
-            "stablelm-zephyr-3b.Q4_K_M.gguf",
+            "mistral-7b-instruct-v0.2.Q4_K_M.gguf",
         )
 
         # backend binary — resolve relative paths against backend/
@@ -534,23 +557,26 @@ class MmapGenerator:
             "You are a factual Q&A assistant. Answer ONLY from the provided context.\n"
             "STRICT RULES:\n"
             "1. Use ONLY facts stated in the context below — nothing else.\n"
-            "2. Cite sources inline as [1], [2], etc.\n"
-            "3. If the context lacks sufficient information, say ONLY: "
+            "2. You MUST cite sources inline as [1], [2], etc. for EVERY factual claim.\n"
+            "3. You MUST cite ALL context passages that contain information relevant to the question — do not skip any relevant passage.\n"
+            "4. If the context lacks sufficient information, say ONLY: "
             '"I could not find relevant information in the available sources." '
             "Do NOT cite any source numbers or file names.\n"
-            "4. Be concise. Do NOT pad your answer.\n"
-            "5. NEVER invent or guess URLs, links, dates, statistics, or references.\n"
-            "6. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.\n"
-            "7. Do NOT add References, Sources, Bibliography, or Citation sections.\n"
-            "8. Do NOT generate content beyond what the context provides.\n"
-            "9. If NONE of the context passages relate to the question, do NOT cite any sources — "
-            "respond only with the refusal message from rule 3."
+            "5. Be concise. Do NOT pad your answer.\n"
+            "6. NEVER invent or guess URLs, links, dates, statistics, or references.\n"
+            "7. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.\n"
+            "8. Do NOT add References, Sources, Bibliography, or Citation sections.\n"
+            "9. Do NOT generate content beyond what the context provides.\n"
+            "10. If NONE of the context passages relate to the question, do NOT cite any sources — "
+            "respond only with the refusal message from rule 4.\n"
+            "11. CRITICAL: Every factual statement MUST include at least one inline citation. Missing a citation is unacceptable.\n"
+            "12. CRITICAL: If a passage is relevant, you MUST cite it. Omitting a relevant passage citation is unacceptable."
         )
 
         user_message = (
             f"CONTEXT:\n{context}\n\n"
             f"QUESTION: {query}\n\n"
-            "Answer the question using ONLY the context above. Use inline [1], [2] citations:"
+            "Answer the question using ONLY the context above. You MUST cite every relevant passage with inline [1], [2], etc. citations. Every claim needs a citation:"
         )
 
         if conversation_context:
@@ -578,11 +604,17 @@ class MmapGenerator:
                     success=True,
                 )
 
+            # Only include citations for chunks the model actually referenced
+            cited_indices = LlamaGenerator._extract_cited_indices(cleaned_text)
+
             citations = []
             for i, chunk in enumerate(valid_chunks[:5]):
+                citation_id = i + 1
+                if cited_indices and citation_id not in cited_indices:
+                    continue
                 citations.append(
                     Citation(
-                        citation_id=i + 1,
+                        citation_id=citation_id,
                         chunk_id=chunk.get("chunk_id", f"chunk_{i}"),
                         source_path=chunk.get("source_path", "unknown"),
                         chunk_text=chunk.get("chunk_text", "")[:200],

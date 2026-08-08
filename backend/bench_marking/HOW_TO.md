@@ -1,42 +1,49 @@
-# Benchmarking Suite Execution Guide
+# Benchmarking Guide
 
-Welcome to the comprehensive benchmarking suite. As an industry-standard practice, we measure not just functional correctness, but also system performance, resource utilization, and retrieval/generation accuracy for this RAG architecture.
+This directory contains scripts and configurations for profiling the performance and accuracy of the Multi-Modal RAG backend.
 
 ## Prerequisites
 
-Ensure all benchmarking dependencies are installed:
+Ensure your environment has the following benchmarking and metric libraries installed:
 ```bash
-pip install -r requirements.txt
-```
-*(Added `pytest-benchmark`, `psutil`, and `scikit-learn` for accurate profiling and evaluation metrics).*
-
-## Structure Overview
-- **`modules_benchmark/`**: Isolated module-level benchmarks measuring micro-latencies, Disk I/O, and CPU times. 
-- **`project_bench_mark/`**: End-to-end RAG system evaluation measuring end-user latency, RAM/VRAM utilization, and retrieval metrics (Precision@K, Recall@K, NDCG, Hallucination checks).
-- **`bench_mark.md`**: Found in each directory to log and store benchmark outputs.
-
-## How to Run Benchmarks
-
-### 1. Run All Benchmarks
-To run the full suite using `pytest-benchmark`:
-```bash
-python -m pytest bench_marking/ --benchmark-only --benchmark-autosave
+pip install pytest-benchmark psutil scikit-learn
 ```
 
-### 2. Module-Level Benchmarks
-To benchmark the data layer (Disk I/O, Insertion Latency):
+## Benchmark Structure
+
+The benchmarking suite is split into:
+
+1. **`modules_benchmark/`**: Micro-benchmarks for individual components (e.g., FAISS search latency, Redis cache I/O, reranker throughput).
+2. **`project_bench_mark/`**: Macro-benchmarks focusing on the entire RAG pipeline from query to response, evaluating the overall system behavior.
+
+*Note: All benchmarks utilize the **Mistral-7B-Instruct-v0.2** model.*
+
+## Running Benchmarks
+
+### Running Module Benchmarks
+To evaluate individual component speeds and memory usage:
 ```bash
-python -m pytest bench_marking/modules_benchmark/data_layer/ -v --benchmark-only > bench_marking/modules_benchmark/data_layer/bench_mark.md
+pytest bench_marking/modules_benchmark/ -v -s
 ```
 
-To benchmark the retrieval layer:
+### Running Project Benchmarks
+To evaluate end-to-end performance, accuracy, and system resilience:
 ```bash
-python -m pytest bench_marking/modules_benchmark/retrieval_layer/ -v --benchmark-only > bench_marking/modules_benchmark/retrieval_layer/bench_mark.md
+pytest bench_marking/project_bench_mark/ -v -s
 ```
 
-### 3. Project-Level (End-to-End RAG) Benchmarks
-To evaluate end-to-end metrics like NDCG, Precision@K, RAM usage, and long-context accuracy:
+**Project benchmarks include:**
+- **Citation Accuracy:** Measures how accurately the LLM cites the retrieved chunks using `scikit-learn` metrics.
+- **Subsystem Toggle:** Tests the system's performance and accuracy when specific optional subsystems (like the 3-tier cache or cross-encoder reranker) are enabled vs. disabled. This highlights the architectural tradeoffs.
+- **Stress Tests:** Measures throughput (queries per second) and resource utilization (`psutil` for RAM/CPU) under concurrent load.
+
+### Generating Reports
+To generate a markdown benchmark report summarizing the results:
 ```bash
-python -m pytest bench_marking/project_bench_mark/ -v -s > bench_marking/project_bench_mark/bench_mark.md
+pytest bench_marking/ -v --benchmark-json=bench_mark.json
+# Depending on your CI/CD setup, you can parse the JSON into Markdown, or pipe terminal output:
+pytest bench_marking/ -v > bench_mark.md
 ```
-*(Note: Use `-s` to capture the stdout of custom RAM profilers and metric calculations printed during the test).*
+
+## Subsystem Toggle Benchmarks Concept
+The "subsystem toggle" benchmarks are uniquely designed to isolate the impact of different pipeline stages. For instance, we benchmark a query flow with the semantic cache *on* versus *off*, or the reranker *on* versus *off*. This helps in calculating the exact latency cost and accuracy benefit of each stage, ensuring that adding complex components actually improves the overall user experience.
