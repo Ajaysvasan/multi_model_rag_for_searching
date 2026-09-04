@@ -51,33 +51,62 @@ layer, is in [`backend/README.md`](./backend/README.md).
 
 ## 2. Benchmarks
 
-All numbers below come from the real-data run recorded in
+Every query, chunk, and embedding below is read from the live database; there
+is no synthetic data in the pipeline measurements. The exact configuration is in
+[§3](#3-benchmark-configuration).
+
+Two runs are reported. The **retrieval ablation (§2.1)** was re-measured on
+2026-09-04 with a rewritten harness, after the original one was found to be
+measuring a model load rather than a pipeline (details below). Everything else
+comes from the full run in
 [`backend/bench_marking/project_bench_mark/benchmark.md`](./backend/bench_marking/project_bench_mark/benchmark.md)
-(generated 2026-08-08). Every query, chunk, and embedding in that run is read
-from the live database — there is no synthetic data in the pipeline
-measurements. The exact configuration is in [§3](#3-benchmark-configuration).
+(2026-08-08), which is unaffected by that defect.
 
 ### 2.1 Retrieval pipeline ablation
 
-Each subsystem switched off in turn, same query, same corpus:
+Corpus of 651 real chunks, 8 known-item queries x 3 passes per configuration,
+one freshly built engine per row, one untimed warm-up query, and the
+cross-encoder built once up front so no row is charged for loading it. Each row
+is *verified*: the `checks` column records what actually executed.
 
-| Configuration | Latency (s) | NDCG | Precision@5 | Chunks retrieved |
-|---|---|---|---|---|
-| Full pipeline (cache + history + reranker + validator) | 0.0337 | 1.00 | 1.00 | 4 |
-| Cache disabled | 0.0464 | 1.00 | 1.00 | 3 |
-| History disabled | 0.0317 | 1.00 | 1.00 | 2 |
-| Reranker disabled | 0.0245 | 1.00 | 1.00 | 2 |
-| Validator disabled | 0.0250 | 1.00 | 1.00 | 2 |
-| Cache + history disabled | 0.0304 | 1.00 | 1.00 | 3 |
-| **Minimal pipeline (all off)** | **4.5284** | **0.98** | **0.75** | 4 |
+Relevance labels are external to the system — each query is generated from a
+sentence inside a specific stored chunk, and that chunk is the only relevant
+document, so a configuration that fails to retrieve it scores zero.
 
-Reading these honestly: the differences between the first six rows are tens of
-milliseconds and sit inside run-to-run noise — no single optional subsystem is
-worth much on its own. The result that matters is the last row. With the whole
-fallback chain disabled, every query pays the cold embedding + ANN path:
-**4.53 s versus 0.034 s, a ~134x slowdown**, and retrieval quality drops
-(Precision@5 1.00 → 0.75). Retrieval is ~39 ms of a full query; generation
-dominates everything else.
+| Configuration | Median (ms) | p90 (ms) | Recall@5 | MRR | Verified |
+|---|---|---|---|---|---|
+| Full pipeline (C+H+R+V) | 16.4 | 27.2 | 1.00 | 1.00 | `ann=7/24 CE=8 VAL=25 cache 0/25 hist 17/25` |
+| Cache off (H+R+V) | 8.0 | 21.2 | 1.00 | 1.00 | `ann=0/24 CE=0 VAL=25 hist 25/25` |
+| History off (C+R+V) | 21.7 | 86.7 | 1.00 | 1.00 | `ann=24/24 CE=25 VAL=25 hist 0/0` |
+| Cross-encoder off (C+H+V) | 11.1 | 26.2 | 1.00 | 1.00 | `ann=0/24 CE=off VAL=25 hist 25/25` |
+| Validator off (C+H+R) | 8.5 | 16.1 | 1.00 | 1.00 | `ann=0/24 CE=0 VAL=off hist 25/25` |
+| Cache + history off (R+V) | 17.9 | 80.4 | 1.00 | 1.00 | `ann=24/24 CE=25 VAL=25 hist 0/0` |
+| No reranking at all | 9.0 | 15.9 | 1.00 | 1.00 | `ann=0/24 CE=off VAL=25 hist 25/25` |
+| Minimal (all optional off) | 3.4 | 3.5 | 1.00 | 0.94 | `ann=24/24 CE=off VAL=off hist 0/0` |
+
+Four things this says, none of which the previous version of this table could:
+
+- **Retrieval is 3-22 ms, not seconds.** An earlier report showed the minimal
+  pipeline at 4.53 s and called it a 134x slowdown. That number was the
+  cross-encoder's one-time model load happening inside a timed row. It is gone.
+- **The cache never hits — 0 of 25 lookups, in every configuration.** This is the
+  known `_UserCacheAdapter` stub: `cache_topics` has no column for chunk ids, so
+  `lookup()` always returns `None`. The cache-on and cache-off rows measure the
+  same pipeline.
+- **The cross-encoder mostly does not run.** `retrieve_enhanced` gates it on
+  `source == "ann"`, so once history is warm (`ann=0/24`) the expensive reranker
+  is skipped entirely and a lightweight embedding rerank runs instead. The rows
+  labelled "reranker on" and "reranker off" are, in steady state, the same row.
+- **The optional machinery costs ~13 ms and buys ~0.06 MRR here.** The minimal
+  pipeline is the *fastest* configuration and loses only a little ranking
+  quality. Every other difference is inside the full pipeline's own
+  median-to-p90 spread (10.8 ms) and should not be read as a speed-up.
+
+Honest limitation: Recall@5 is 1.00 in every configuration, so this query set is
+near-saturated — it can detect gross breakage but cannot rank these
+configurations against each other. Known-item retrieval is an easier task than a
+real user question. Harder queries are the next thing this benchmark needs; see
+[`TODO.md`](./TODO.md).
 
 ### 2.2 Answer quality and citations
 
@@ -91,11 +120,14 @@ Three organic queries, full pipeline, real LLM generation:
 | Citation F1 | 1.00 |
 | Citations emitted vs. chunks offered | 1.0 of 3.3 |
 
-Precision 1.00 means every citation the model produced pointed at a real,
-retrieved chunk — no invented sources. Recall 1.00 means the most relevant
-chunk was cited every time. The model cites ~1 of the ~3 passages it is given,
-which is selective rather than overfitted; a system gaming the metric would
-cite everything.
+Read these narrowly. What the harness checks is that every `[n]` the model
+emitted is within the range of passages it was given, and that `[1]` appears —
+so "precision 1.00" means *no citation pointed at a passage that was never
+supplied*, which rules out invented sources but does not verify that the cited
+passage supports the sentence attached to it. Over three queries, that is a
+sanity check, not an accuracy claim. Citing ~1 of ~3 offered passages is
+selective rather than overfitted; a system gaming the metric would cite
+everything.
 
 ### 2.3 Throughput and stress
 

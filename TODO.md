@@ -26,9 +26,18 @@ Replaces the old `backend/todo.txt`.
       third of the size — evaluate answer quality before switching
       (`Config.PROMPT_TEMPLATE` must change with the model).
 - [ ] **Server-side cache and history are stubs.** `cache_topics` has no column
-      for chunk IDs, so `_UserCacheAdapter.lookup()` always returns `None` and
-      the server takes the ANN path on every query; history is per-process and
-      lost on restart. See [`AdpaterModule.md`](./backend/AdpaterModule/AdpaterModule.md).
+      for chunk IDs, so `_UserCacheAdapter.lookup()` always returns `None`;
+      history is per-process and lost on restart. Now measured rather than
+      suspected: **0 hits in 25 lookups in every ablation configuration**, so
+      the cache-on and cache-off rows are the same pipeline. See
+      [`AdpaterModule.md`](./backend/AdpaterModule/AdpaterModule.md).
+
+- [ ] **The cross-encoder is skipped on every warm query.**
+      `retrieve_enhanced` gates it on `source == "ann"`, so as soon as history
+      serves a query the expensive reranker is bypassed and the lightweight
+      embedding rerank runs instead. Measured: `ann=0/24` on all cache/history
+      rows. Decide whether that is the intent — if it is, say so in
+      `reranking.md`; if not, rerank on the history path too.
 - [ ] **`/query` passes the user ID as the session ID.** It never matches a
       `history_sessions` row, so a new session is created per turn: multi-turn
       context is lost and the table grows unboundedly.
@@ -52,6 +61,11 @@ Replaces the old `backend/todo.txt`.
 - [ ] **Unit tests for the untested layers.** `test/module_testing/` covers only
       `data_layer`, `generation_layer`, and `retrieval_layer`. Cache, history,
       reranking, validation, security, and the adapters have none.
+
+- [ ] **Harder benchmark queries.** Known-item Recall@5 is 1.00 in every
+      configuration, so the query set can detect gross breakage but cannot rank
+      configurations against each other. Hand-written questions with judged
+      relevant chunks would make the ablation discriminative.
 - [ ] **New feature or layer.** Open-ended; propose in an issue first.
 - [ ] **Java for the system plumbing** — job scheduling, thread pools, event
       driven task management. Someday, not now.
@@ -72,6 +86,17 @@ Replaces the old `backend/todo.txt`.
 ---
 
 ## Recently done
+
+- [x] **Fixed the ablation harness.** It disabled a stage by assigning `None` to
+      `engine._reranker` — the not-built-yet sentinel the property rebuilds
+      from — so every configuration ran the full pipeline, and the headline
+      "134x slower" was a cross-encoder model load inside a timed region. Gold
+      labels were also taken from the pipeline's own output, pinning NDCG at
+      1.00 by construction. The engine now has real `reranker_enabled` /
+      `validator_enabled` / `lightweight_rerank_enabled` flags, relevance
+      labels are known-item, each row is verified by counting proxies, and
+      `test/module_testing/retrieval_layer/test_ablation_flags.py` fails if the
+      sentinel trick comes back.
 
 - [x] **Project benchmarking.** Real-data suite in
       `bench_marking/project_bench_mark/run_real_benchmark.py`; results in

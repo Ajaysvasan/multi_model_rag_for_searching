@@ -5,6 +5,16 @@
 > Quantisation: Q4_K_M | ANN_TOP_K: 10 | MIN_RELEVANCE: 0.25
 > **All data sourced from live SQLite/Postgres database — zero synthetic data**
 
+> ⚠️ **Sections 2 and 3 of this report are superseded.** They were produced by a
+> harness that disabled a stage by assigning `None` to `engine._reranker`, which
+> is the not-built-yet sentinel the property rebuilds from — so every row ran the
+> full pipeline, and the "134x slower" figure is a cross-encoder model load
+> inside a timed region. Gold labels were also taken from the pipeline's own
+> output, which is why every NDCG reads 1.00. Re-run `run_real_benchmark.py` to
+> regenerate this file with the fixed harness; the current numbers are in the
+> root README. Sections 1, 4, 5 and 6 are unaffected.
+
+
 ## 1. Stress Tests (Real Data)
 
 | Test                                         | Time (s)         | Status  |

@@ -12,18 +12,14 @@
 import datetime
 import gc
 import os
-import re
 import sys
 import time
-from pathlib import Path
-
-import numpy as np
 import psutil
-from sklearn.metrics import ndcg_score
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
 sys.path.insert(0, BACKEND_ROOT)
+sys.path.insert(0, SCRIPT_DIR)
 
 from config import Config
 from data_models.chunks import Chunk
@@ -37,6 +33,16 @@ from AdpaterModule.CacheAdapter import _UserCacheAdapter
 from AdpaterModule.ConvMemoryAdapter import _UserConvMemoryAdapter
 from AdpaterModule.HistoryAdapter import _UserHistoryAdapter
 from AdpaterModule.MetaDataAdapter import _UserMetadataAdapter
+from eval_harness import (
+    CountingCache,
+    CountingHistory,
+    CountingReranker,
+    CountingValidator,
+    DummyCache,
+    build_known_item_queries,
+    known_item_metrics,
+    pct,
+)
 
 PASS = "✅ PASS"
 FAIL = "❌ FAIL"
@@ -44,9 +50,6 @@ FAIL = "❌ FAIL"
 def hdr(title):
     print(f"\n{'='*80}\n{title.center(80)}\n{'='*80}")
 
-class DummyCache:
-    def lookup(self, key): return None
-    def insert_new(self, key, cached_chunk_ids): pass
 
 
 def main():
@@ -58,7 +61,8 @@ def main():
     report.append(f"> Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     report.append(f"> Model: `{Config.GENERATION_MODEL}` ({Config.GENERATION_MODEL_FILE})")
     report.append(f"> Quantisation: Q4_K_M  |  ANN_TOP_K: {Config.ANN_TOP_K}  |  MIN_RELEVANCE: {Config.MIN_RELEVANCE_SCORE}")
-    report.append(f"> **All data sourced from live SQLite/Postgres database — zero synthetic data**\n")
+    report.append(f"> **All data sourced from live SQLite/Postgres database — zero synthetic data**")
+    report.append("> Relevance labels are known-item (each query is generated from a known source chunk), not taken from the pipeline's own output\n")
 
     # ===================================================================
     # Load pipeline
@@ -92,12 +96,13 @@ def main():
         print("ERROR: 0 chunks.")
         return
 
-    # Build 3 diverse organic queries
-    queries = []
-    for idx in [0, min(5, total-1), min(10, total-1)]:
-        w = all_chunks[idx].text.split()[:6]
-        queries.append("What is " + " ".join(w) + "?")
-    queries = list(dict.fromkeys(queries))
+    # Known-item queries: each carries the id of the chunk it was generated
+    # from, which is the ground-truth positive used to score retrieval.
+    queries = build_known_item_queries(all_chunks, n=8)
+    if not queries:
+        print("ERROR: no chunk long enough to generate a known-item query.")
+        return
+    print(f"Built {len(queries)} known-item queries from real chunks")
 
     # Build engine
     user_index = faiss_mgr.get_index(user_id)
@@ -129,7 +134,7 @@ def main():
 
     # 1b  20 consecutive retrievals with real queries
     t0 = time.time()
-    for q in (queries * 7)[:20]:
+    for q, _gold in (queries * 7)[:20]:
         engine.retrieve_enhanced(q)
     t = time.time() - t0
     print(f"  20 rapid real retrievals: {t:.2f}s (avg {t/20:.3f}s)  {PASS}")
@@ -139,7 +144,7 @@ def main():
     real_5 = [{"chunk_id": f"s_{i}", "chunk_text": c.text, "source_path": "db"}
               for i, c in enumerate(all_chunks[:5]) if c.text]
     t0 = time.time()
-    res5 = generator.generate(query=queries[0], chunks=real_5)
+    res5 = generator.generate(query=queries[0][0], chunks=real_5)
     t = time.time() - t0
     print(f"  Real LLM gen (5 organic chunks): {t:.1f}s  {PASS}")
     stress.append(("Real LLM generation on 5 DB chunks", f"{t:.1f}"))
@@ -161,112 +166,276 @@ def main():
     report.append("")
 
     # ===================================================================
-    # SECTION 2 — Subsystem Toggle Ablation
+    # SECTION 2 — Subsystem Ablation
     # ===================================================================
-    hdr("SECTION 2: Subsystem Toggle Ablation (Real Pipeline)")
+    hdr("SECTION 2: Subsystem Ablation (Real Pipeline, verified)")
 
-    primary_q = queries[0]
-    full_res = engine.retrieve_enhanced(primary_q)
-    gold_ids = [c["chunk_id"] for c in full_res.chunks_with_metadata]
-    gold_rel = {}
-    for i, cid in enumerate(gold_ids):
-        gold_rel[cid] = 3 if i == 0 else (2 if i == 1 else 1)
+    # Build and fully load the optional stages ONCE, outside every timed
+    # region.  Loading the cross-encoder costs seconds, and when that load
+    # happened inside a measured row it was reported as a 134x pipeline
+    # slowdown.  Doing it here means no row can be charged for it.
+    from reranking.reranker import CrossEncoderReranker
+    from validation_layer.validator import RetrievalValidator
 
+    print("Pre-loading reranker + validator (excluded from all timings)...")
+    t0 = time.time()
+    shared_reranker = CrossEncoderReranker()
+    shared_validator = RetrievalValidator(embedding_model=embed_model)
+    # Constructing the reranker is free: CrossEncoderReranker loads its model
+    # lazily on the first rerank() call. Forcing the load here is the whole
+    # point -- left implicit, it lands inside the first timed row and gets
+    # reported as a pipeline cost, which is how the old "134x slower" number
+    # was produced.
+    shared_reranker.rerank(
+        "warm up", [{"chunk_id": "warmup", "chunk_text": "warm up passage"}]
+    )
+    print(f"  loaded in {time.time() - t0:.1f}s")
+
+    def build_engine(use_cache, use_hist, use_cross, use_valid, use_light):
+        """A fresh engine per configuration, so no state leaks between rows.
+
+        The stages are switched with the engine's explicit ablation flags.
+        Assigning None to _reranker / _validator does NOT disable them: None is
+        the 'not built yet' sentinel their properties rebuild from.
+        """
+        cache = (
+            CountingCache(_UserCacheAdapter(pg_cache, user_id))
+            if use_cache
+            else DummyCache()
+        )
+        history = CountingHistory(_UserHistoryAdapter(pg_hist, user_id))
+        reranker = CountingReranker(shared_reranker) if use_cross else None
+        validator = CountingValidator(shared_validator) if use_valid else None
+
+        engine_ = RetrievalEngine(
+            cache=cache,
+            index=faiss_mgr.get_index(user_id),
+            embedding_model=embed_model,
+            history=history,
+            ann_top_k=Config.ANN_TOP_K,
+            history_enabled=use_hist,
+            metadata_store=_UserMetadataAdapter(pg_cs, user_id),
+            generator=generator,
+            conversation_memory=_UserConvMemoryAdapter(pg_conv, user_id),
+            reranker=reranker,
+            validator=validator,
+            reranker_enabled=use_cross,
+            validator_enabled=use_valid,
+            lightweight_rerank_enabled=use_light,
+        )
+        return engine_, cache, history, reranker, validator
+
+    #  name,                        cache, history, cross-enc, validator, lightweight
     configs = [
-        ("Full Pipeline (C+H+R+V)",   True,  True,  True,  True),
-        ("Cache Disabled (H+R+V)",     False, True,  True,  True),
-        ("History Disabled (C+R+V)",   True,  False, True,  True),
-        ("Reranker Disabled (C+H+V)",  True,  True,  False, True),
-        ("Validator Disabled (C+H+R)", True,  True,  True,  False),
-        ("Cache+History Off (R+V)",    False, False, True,  True),
-        ("Minimal Pipeline (None)",    False, False, False, False),
+        ("Full pipeline (C+H+R+V)",   True,  True,  True,  True,  True),
+        ("Cache off (H+R+V)",         False, True,  True,  True,  True),
+        ("History off (C+R+V)",       True,  False, True,  True,  True),
+        ("Cross-encoder off (C+H+V)", True,  True,  False, True,  True),
+        ("Validator off (C+H+R)",     True,  True,  True,  False, True),
+        ("Cache+history off (R+V)",   False, False, True,  True,  True),
+        ("No reranking at all",       True,  True,  False, True,  False),
+        ("Minimal (all optional off)", False, False, False, False, False),
     ]
 
+    REPEATS = 3
     rows = []
-    full_lat = None
-    full_ndcg = None
-    full_p5 = None
-    full_nc = None
+    problems = []   # a row that is not the configuration it claims to be
+    notes = []      # a stage that is enabled but never reached
 
-    print(f"{'Config':<30} {'Lat(s)':>8} {'NDCG':>6} {'P@5':>6} {'#Chnk':>6}")
-    print("-" * 62)
+    print(
+        f"\n{len(queries)} known-item queries x {REPEATS} passes per configuration\n"
+    )
+    print(f"{'Config':<28}{'med(s)':>9}{'p90(s)':>9}{'R@5':>7}{'MRR':>7}{'NDCG':>7}  checks")
+    print("-" * 88)
 
-    for name, uc, uh, ur, uv in configs:
-        oc, or_, ov_, oh_ = engine.cache, engine._reranker, engine._validator, engine.history_enabled
-        if not uc: engine.cache = DummyCache()
-        engine.history_enabled = uh
-        if not ur: engine._reranker = None
-        if not uv: engine._validator = None
+    for name, use_cache, use_hist, use_cross, use_valid, use_light in configs:
+        engine_, cache, history, reranker, validator = build_engine(
+            use_cache, use_hist, use_cross, use_valid, use_light
+        )
 
-        tq = f"{primary_q} ctx:{name.split('(')[0].strip()}"
-        t0 = time.time()
-        res = engine.retrieve_enhanced(tq)
-        lat = time.time() - t0
-        ret = [c["chunk_id"] for c in res.chunks_with_metadata]
-        nc = len(ret)
-        hits = sum(1 for c in ret[:5] if c in gold_rel)
-        p5 = hits / min(5, max(1, nc))
-        all_ids = list(set(gold_ids + ret))
-        yt = [gold_rel.get(c, 0) for c in all_ids]
-        ys = [10.0/(ret.index(c)+1) if c in ret else 0.0 for c in all_ids]
-        ndcg = ndcg_score([yt], [ys]) if sum(yt) > 0 else 0.0
+        # Untimed warm-up: lazy imports, first-touch page faults and index
+        # warm-up land here rather than in a measured row.
+        engine_.retrieve_enhanced(queries[0][0])
 
-        if full_lat is None:
-            full_lat, full_ndcg, full_p5, full_nc = lat, ndcg, p5, nc
+        lats, mets = [], []
+        sources = {}
+        for _ in range(REPEATS):
+            for query_text, gold_id in queries:
+                t0 = time.perf_counter()
+                res = engine_.retrieve_enhanced(query_text)
+                lats.append(time.perf_counter() - t0)
+                sources[res.source] = sources.get(res.source, 0) + 1
+                mets.append(
+                    known_item_metrics(
+                        [c["chunk_id"] for c in res.chunks_with_metadata], gold_id
+                    )
+                )
 
-        print(f"{name:<30} {lat:>8.4f} {ndcg:>6.2f} {p5:>6.2f} {nc:>6}")
-        rows.append((name, lat, ndcg, p5, nc))
+        med = pct(lats, 0.5)
+        p90 = pct(lats, 0.9)
+        recall = sum(m["hit"] for m in mets) / len(mets)
+        mrr = sum(m["rr"] for m in mets) / len(mets)
+        ndcg = sum(m["ndcg"] for m in mets) / len(mets)
 
-        engine.cache, engine._reranker, engine._validator, engine.history_enabled = oc, or_, ov_, oh_
+        # --- Prove the configuration is the configuration it claims to be ---
+        # The cross-encoder only runs on the ANN path (retrieve_enhanced gates it
+        # on `source == "ann"`), so "enabled but never called" is a real result
+        # when nothing missed cache and history -- not a broken row. Separated,
+        # because one means the benchmark is lying and the other means the stage
+        # is idle in production too.
+        ann_queries = sources.get("ann", 0)
+        checks = [f"ann={ann_queries}/{len(lats)}"]
+        if use_cross:
+            checks.append(f"CE={reranker.calls}")
+            if reranker.calls == 0 and ann_queries:
+                problems.append(
+                    f"{name}: cross-encoder enabled and {ann_queries} queries took "
+                    f"the ANN path, but rerank() was never called"
+                )
+            elif reranker.calls == 0:
+                notes.append(
+                    f"**{name}** — the cross-encoder never ran: no query reached the "
+                    f"ANN path, because cache/history served them all. The stage is "
+                    f"enabled but idle, so this row measures the same work as the "
+                    f"cross-encoder-off row."
+                )
+        else:
+            checks.append("CE=off")
+            if engine_.reranker is not None:
+                problems.append(f"{name}: cross-encoder disabled but engine exposes one")
+        if use_valid:
+            checks.append(f"VAL={validator.calls}")
+            if validator.calls == 0:
+                problems.append(f"{name}: validator enabled but never called")
+        else:
+            checks.append("VAL=off")
+            if engine_.validator is not None:
+                problems.append(f"{name}: validator disabled but engine exposes one")
+        checks.append(f"cache {cache.hits}/{cache.lookups}")
+        checks.append(f"hist {history.hits}/{history.lookups}")
+        check_str = " ".join(checks)
 
-    report.append("## 2. Subsystem Toggle Ablation (Real Pipeline)\n")
-    report.append("| Configuration | Latency (s) | NDCG | Precision@5 | Chunks Retrieved |")
-    report.append("|---------------|-------------|------|-------------|-----------------|")
-    for n, l, nd, p, nc in rows:
-        report.append(f"| {n} | {l:.4f} | {nd:.2f} | {p:.2f} | {nc} |")
+        print(
+            f"{name:<28}{med:>9.4f}{p90:>9.4f}{recall:>7.2f}{mrr:>7.2f}{ndcg:>7.2f}  {check_str}"
+        )
+        rows.append((name, med, p90, recall, mrr, ndcg, check_str))
+
+    full = rows[0]
+
+    report.append("## 2. Subsystem Ablation (Real Pipeline)\n")
+    report.append(
+        f"**Method.** {len(queries)} known-item queries x {REPEATS} passes per "
+        f"configuration, one freshly built engine per row, one untimed warm-up "
+        f"query before timing, and the cross-encoder and validator constructed "
+        f"once up front so no row is charged for loading them. Stages are "
+        f"switched with the engine's ablation flags and every row is verified "
+        f"(see the checks column) — assigning `None` to `_reranker` does not "
+        f"disable it, it triggers a rebuild.\n"
+    )
+    report.append(
+        "**Relevance labels are external to the system.** Each query is built "
+        "from a sentence inside a specific stored chunk, and that chunk is the "
+        "only relevant document. Metrics are known-item Recall@5, MRR and "
+        "NDCG@5, and a configuration that fails to retrieve the source chunk "
+        "scores zero. Known-item retrieval is an easier task than a real user "
+        "question, so treat these as a floor, not an accuracy claim.\n"
+    )
+    report.append(
+        "| Configuration | Median latency (s) | p90 (s) | Recall@5 | MRR | NDCG@5 | Verification |"
+    )
+    report.append("|---|---|---|---|---|---|---|")
+    for name, med, p90, recall, mrr, ndcg, check_str in rows:
+        report.append(
+            f"| {name} | {med:.4f} | {p90:.4f} | {recall:.2f} | {mrr:.2f} | {ndcg:.2f} | `{check_str}` |"
+        )
     report.append("")
+
+    if problems:
+        report.append("> **Ablation integrity failures — the numbers above are not trustworthy:**\n>")
+        for p in problems:
+            report.append(f"> - {p}")
+        report.append("")
+        print("\n  !! ABLATION INTEGRITY FAILURES:")
+        for p in problems:
+            print(f"     - {p}")
+    else:
+        report.append(
+            "Every row was verified: each stage marked on was observed running, "
+            "and each stage marked off was absent from the engine.\n"
+        )
+        print("\n  integrity checks: every configuration verified")
+
+    if notes:
+        report.append("**Stages that were enabled but never reached:**\n")
+        for note in notes:
+            report.append(f"- {note}")
+        report.append("")
+        print("\n  stages enabled but idle:")
+        for note in notes:
+            print(f"     - {note[:110]}")
+
+    cache_dead = all(
+        r[6].split("cache ")[1].split("/")[0] == "0" for r in rows if "cache " in r[6]
+    )
+    if cache_dead:
+        note = (
+            "The cache never hit in any configuration. This is the known "
+            "`_UserCacheAdapter` stub (AdpaterModule.md): `cache_topics` has no "
+            "column for chunk ids, so `lookup()` always returns `None`. The "
+            "cache-on and cache-off rows therefore measure the same pipeline, "
+            "and the cache row's latency is a dictionary miss, not a cache."
+        )
+        report.append(f"> **Note.** {note}\n")
+        print(f"\n  NOTE: {note}")
 
     # ===================================================================
     # SECTION 3 — Improvement Comparison
     # ===================================================================
     hdr("SECTION 3: Full Pipeline vs. Each Disabled Subsystem")
 
+    # Run-to-run spread on the full pipeline, used as the threshold below which
+    # a latency difference means nothing.  The previous report called 10 ms
+    # differences "1.4x faster"; they were noise.
+    noise = max(full[2] - full[1], 0.005)
+
     report.append("## 3. Improvement Analysis (Full Pipeline vs Each Configuration)\n")
-    report.append("| Configuration | Latency Δ | NDCG Δ | Precision@5 Δ | Chunks Δ | Verdict |")
-    report.append("|---------------|-----------|--------|---------------|----------|---------|")
+    report.append(
+        f"Latency differences smaller than the full pipeline's own median-to-p90 "
+        f"spread (**{noise*1000:.1f} ms**) are reported as *within noise* rather "
+        f"than as a speed-up.\n"
+    )
+    report.append("| Configuration | Latency Δ | Recall@5 Δ | MRR Δ | NDCG@5 Δ | Verdict |")
+    report.append("|---|---|---|---|---|---|")
 
-    print(f"\n{'Config':<30} {'Lat Δ':>10} {'NDCG Δ':>8} {'P@5 Δ':>8} {'Verdict'}")
-    print("-" * 70)
+    print(f"\n{'Config':<28}{'Latency':>18}{'R@5 Δ':>9}{'MRR Δ':>9}  Verdict")
+    print("-" * 88)
 
-    for name, lat, ndcg, p5, nc in rows[1:]:  # skip Full Pipeline itself
-        lat_ratio = lat / full_lat if full_lat > 0 else 0
-        ndcg_delta = ndcg - full_ndcg
-        p5_delta = p5 - full_p5
-        chunk_delta = nc - full_nc
+    for name, med, p90, recall, mrr, ndcg, _check in rows[1:]:
+        d_lat = med - full[1]
+        d_recall = recall - full[3]
+        d_mrr = mrr - full[4]
+        d_ndcg = ndcg - full[5]
 
-        if lat_ratio > 1:
-            lat_str = f"{lat_ratio:.1f}x slower"
+        if abs(d_lat) < noise:
+            lat_str = "within noise"
+        elif d_lat > 0:
+            lat_str = f"{d_lat*1000:+.1f} ms slower"
         else:
-            lat_str = f"{1/lat_ratio:.1f}x faster"
+            lat_str = f"{-d_lat*1000:.1f} ms faster"
 
-        ndcg_str = f"{ndcg_delta:+.2f}" if ndcg_delta != 0 else "same"
-        p5_str   = f"{p5_delta:+.2f}" if p5_delta != 0 else "same"
-        ch_str   = f"{chunk_delta:+d}" if chunk_delta != 0 else "same"
-
-        # Verdict
-        if ndcg_delta < -0.01 or p5_delta < -0.1:
+        if d_recall < -0.05 or d_mrr < -0.05:
             verdict = "⚠️ Quality degraded"
-        elif lat_ratio > 10:
-            verdict = "🐢 Severely slower"
-        elif lat_ratio > 2:
-            verdict = "⚠️ Noticeably slower"
-        elif abs(ndcg_delta) < 0.01 and abs(p5_delta) < 0.05:
-            verdict = "✅ Minimal impact"
+        elif d_lat > noise:
+            verdict = "⚠️ Slower, no quality gain"
+        elif d_lat < -noise:
+            verdict = "✅ Cheaper, quality held"
         else:
-            verdict = "ℹ️ Trade-off"
+            verdict = "➖ No measurable difference"
 
-        print(f"{name:<30} {lat_str:>10} {ndcg_str:>8} {p5_str:>8} {verdict}")
-        report.append(f"| {name} | {lat_str} | {ndcg_str} | {p5_str} | {ch_str} | {verdict} |")
+        print(f"{name:<28}{lat_str:>18}{d_recall:>+9.2f}{d_mrr:>+9.2f}  {verdict}")
+        report.append(
+            f"| {name} | {lat_str} | {d_recall:+.2f} | {d_mrr:+.2f} | {d_ndcg:+.2f} | {verdict} |"
+        )
 
     report.append("")
 
@@ -276,7 +445,7 @@ def main():
     hdr("SECTION 4: Citation Accuracy (Real LLM Generation)")
 
     citation_rows = []
-    for qi, q in enumerate(queries):
+    for qi, (q, _gold) in enumerate(queries):
         print(f"\n  Query {qi+1}: {q[:60]}...")
         t0 = time.time()
         resp = engine.retrieve_and_generate(q, q, str(user_id))

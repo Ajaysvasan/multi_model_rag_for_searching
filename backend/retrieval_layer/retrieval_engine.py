@@ -237,6 +237,9 @@ class RetrievalEngine(QueryProcessing):
         validator=None,
         generator=None,
         conversation_memory=None,
+        reranker_enabled: bool = True,
+        validator_enabled: bool = True,
+        lightweight_rerank_enabled: bool = True,
     ):
         self.cache = cache
         self.index = index
@@ -251,8 +254,19 @@ class RetrievalEngine(QueryProcessing):
         self._generator = generator
         self.conversation_memory = conversation_memory
 
+        # Ablation switches. These exist because `_reranker = None` cannot turn
+        # a stage off -- None is the "not built yet" sentinel the properties
+        # below rebuild from, so nulling the attribute silently reloads the
+        # component instead of disabling it. Anything measuring the cost or
+        # benefit of a stage must use these flags.
+        self.reranker_enabled = reranker_enabled
+        self.validator_enabled = validator_enabled
+        self.lightweight_rerank_enabled = lightweight_rerank_enabled
+
     @property
     def reranker(self):
+        if not self.reranker_enabled:
+            return None
         if self._reranker is None:
             try:
                 from reranking.reranker import CrossEncoderReranker
@@ -265,6 +279,8 @@ class RetrievalEngine(QueryProcessing):
 
     @property
     def validator(self):
+        if not self.validator_enabled:
+            return None
         if self._validator is None:
             try:
                 from validation_layer.validator import RetrievalValidator
@@ -369,7 +385,7 @@ class RetrievalEngine(QueryProcessing):
                     logger.info(
                         f"Cross-encoder reranked to {len(chunks_with_text)} chunks"
                     )
-                else:
+                elif self.lightweight_rerank_enabled:
                     from reranking.reranker import LightweightReranker
 
                     light = LightweightReranker(
