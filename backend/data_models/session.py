@@ -19,7 +19,8 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
-    except Exception as e:
-        raise Exception(f"Database session error: {e}")
     finally:
+        # Do not catch here: FastAPI throws the route's exception back in at the
+        # yield, so wrapping it would turn every HTTPException into a bare 500
+        # and drop its status code and detail.
         db.close()

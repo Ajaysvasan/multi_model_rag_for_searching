@@ -1,19 +1,63 @@
-version: '3.8'
+# Orchestrates the RAG backend, its PostgreSQL database, and the Electron
+# frontend. See backend/BACKEND.md for the full setup guide.
+#
+#   docker compose up --build          start everything
+#   docker compose up -d backend db    backend only (frontend run natively)
+#
+# The GGUF model is not baked into the image. Download it once on the host
+# (python backend/download_model.py) -- ./backend/models is mounted below.
 
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: rag-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-raguser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragpass}
+      POSTGRES_DB: ${DB_NAME:-ragdb}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # uuid-ossp is required: several tables default their PK to
+      # uuid_generate_v4(). This runs once, on first initialisation.
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-raguser} -d ${DB_NAME:-ragdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # Set to ON and use a CUDA runtime base to build the GPU worker.
+        GGML_CUDA: "OFF"
     container_name: rag-backend
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
-      - backend_data:/app/data
-      - backend_models:/app/models
     environment:
-      - PYTHONUNBUFFERED=1
+      PYTHONUNBUFFERED: "1"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-raguser}
+      DB_PASSWORD: ${DB_PASSWORD:-ragpass}
+      DB_NAME: ${DB_NAME:-ragdb}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+    volumes:
+      # Only mount what must persist or be supplied from the host. Do NOT
+      # bind-mount the whole source tree over /app: that shadows the compiled
+      # bin/llm_backend and the llama.cpp shared objects built into the image.
+      - ./backend/models:/app/models
+      - backend_data:/app/data
+      - backend_logs:/app/logs
     restart: unless-stopped
 
   frontend:
@@ -23,16 +67,17 @@ services:
     container_name: rag-frontend
     network_mode: host
     environment:
-      - DISPLAY=${DISPLAY}
+      DISPLAY: ${DISPLAY}
     volumes:
-      - ./Frontend:/app
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - ${HOME}/.Xauthority:/root/.Xauthority
+      - ${HOME}/.Xauthority:/root/.Xauthority:ro
     depends_on:
       - backend
     command: npm start
+    # Electron needs an X display; on a headless host start only db+backend.
+    profiles: ["desktop"]
 
 volumes:
+  pgdata:
   backend_data:
-  backend_models:
-
+  backend_logs:

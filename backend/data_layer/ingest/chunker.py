@@ -126,6 +126,13 @@ class TextChunker:
                 # Overlap handling
                 current_paras, current_tokens = self._apply_overlap(current_paras)
 
+                # The overlap tail must leave room for paragraphs[i], otherwise
+                # the next iteration lands here again with identical state and
+                # re-emits this same chunk forever. Drop the tail to guarantee
+                # forward progress.
+                if current_tokens + tokens > self.target_tokens:
+                    current_paras, current_tokens = [], 0
+
                 # We do NOT increment 'i' here because we still need to process
                 # the current paragraph (paragraphs[i]) in the next iteration
                 # (now that the buffer is cleared/overlapped).

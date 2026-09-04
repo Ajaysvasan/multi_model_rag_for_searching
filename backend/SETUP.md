@@ -5,9 +5,15 @@
 This is the backend system for a Multi-Modal Retrieval-Augmented Generation (RAG) search application. It integrates text, images, and other formats to provide accurate, source-backed answers to user queries.
 
 **Model Information:**
-- **Model:** Mistral-7B-Instruct-v0.2
+- **Model:** StableLM-Zephyr-3B (default)
 - **Format:** GGUF Q4_K_M quantization
-- **Size:** ~4.4GB
+- **Size:** ~1.6GB
+
+Set `Config.GENERATION_MODEL` / `GENERATION_MODEL_FILE` to change it, and keep
+`Config.PROMPT_TEMPLATE` in step (`zephyr` / `mistral` / `plain`) — the C++
+backend applies that template by hand and a mismatch degrades answers silently.
+Measured decode throughput on a 20-core CPU, Q4_K_M: StableLM-Zephyr-3B 18.7
+tok/s, Qwen2.5-3B 14.8 tok/s, Mistral-7B 8.0 tok/s.
 
 **Key Components:**
 - **Data Ingestion:** Processing varied document formats (PDFs, images, etc.).
@@ -16,7 +22,7 @@ This is the backend system for a Multi-Modal Retrieval-Augmented Generation (RAG
 - **Conversation History:** Retaining context across multi-turn interactions.
 - **Cross-Encoder Reranking:** Reordering retrieved documents to improve relevance.
 - **Validation & Fact-Checking:** Ensuring the generated output strictly relies on retrieved documents.
-- **LLM Generation:** Mistral-based text synthesis via local execution (llama.cpp).
+- **LLM Generation:** local GGUF text synthesis via llama.cpp.
 
 ## Section 2: Prerequisites
 
@@ -52,7 +58,7 @@ Before setting up the project, ensure your system meets the following requiremen
    ```
 
 5. **Download the model:**
-   Run the download script to fetch the Mistral-7B GGUF file:
+   Run the download script to fetch the configured GGUF file:
    ```bash
    python download_model.py
    ```
@@ -117,6 +123,42 @@ Before setting up the project, ensure your system meets the following requiremen
    ```
    Run with: `docker-compose up -d`
 
+
+## Section 4b: GPU acceleration
+
+`llama-cpp-python` ships as a **CPU-only wheel by default**. Setting
+`Config.N_GPU_LAYERS = -1` is not enough on its own — llama.cpp silently ignores
+the request when the build has no GPU backend, which is why the loader now logs
+a warning instead of pretending. Check which you have:
+
+```bash
+python -c "import llama_cpp; print(llama_cpp.llama_supports_gpu_offload())"
+```
+
+`False` means CPU-only. To build a CUDA wheel without root, put the toolkit
+inside the conda env:
+
+```bash
+# nvcc 12.9 rejects host compilers newer than gcc 14, so bring gcc 13 along
+conda install -n <env> -y -c nvidia -c conda-forge "cuda-toolkit=12.9" "gxx_linux-64=13"
+
+# CMAKE_CUDA_ARCHITECTURES must match your card:
+#   86 = Ampere (RTX 30xx)   89 = Ada (RTX 40xx)   120 = Blackwell (RTX 50xx)
+# nvidia-smi --query-gpu=compute_cap --format=csv reports it as e.g. 12.0 -> 120
+CUDAHOSTCXX="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++" \
+CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120" \
+  pip install --force-reinstall --no-cache-dir --no-binary llama-cpp-python llama-cpp-python
+```
+
+Then `llama_supports_gpu_offload()` returns `True` and the loader logs
+`GPU offload enabled`. Keep `Config.N_CTX` in mind: the KV cache lives in VRAM
+once layers are offloaded, roughly 130 MB per 1024 tokens for a 7B model.
+
+The standalone C++ backend (`llm_backend/`) reads its own settings from the
+environment — `LLM_N_GPU_LAYERS`, `LLM_N_CTX`, `LLM_MAX_NEW_TOKENS`,
+`LLM_TEMPERATURE`, `LLM_TOP_P`, `LLM_TOP_K`, `LLM_REPEAT_PENALTY` — and needs
+`third_party/llama.cpp` rebuilt with `-DGGML_CUDA=on` to use the GPU.
+
 ## Section 5: Environment Variables
 
 Configure these values in your `.env` file (see `settings.py` for defaults):
@@ -168,6 +210,8 @@ A quick overview of key REST endpoints exposed by the service:
 
 - **Server crashes on startup with MemoryError:**
   Ensure your machine has at least 8GB of free RAM. Close other memory-intensive applications.
+- **Logs say "no GPU backend ... Running on CPU":**
+  The installed `llama-cpp-python` is a CPU-only wheel. See "GPU acceleration" below.
 - **Model not found:**
   Make sure you ran `python download_model.py` and the GGUF file is physically present in the `models/` directory before starting the app (or mapping the volume in Docker).
 - **llama.cpp build failures during pip install:**

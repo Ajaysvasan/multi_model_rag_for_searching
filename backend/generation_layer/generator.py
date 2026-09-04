@@ -15,7 +15,14 @@ sys.path.append(parent_dir)
 
 from config import Config
 
-from .prompts import format_context_for_generation
+from .prompts import (
+    SYSTEM_PROMPT,
+    estimate_tokens,
+    format_context_for_generation,
+    wrap_prompt,
+)
+
+
 
 logger = logging.getLogger("generation")
 logger.setLevel(logging.INFO)
@@ -24,6 +31,18 @@ if not logger.handlers:
     formatter = logging.Formatter("[%(levelname)s] %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+
+def _context_budget(n_ctx: int, fixed_text: str, max_new_tokens: int) -> int:
+    """Tokens left for retrieved passages after everything else is accounted for.
+
+    Nothing computed this before: five passages were concatenated regardless of
+    n_ctx, so a run of large chunks produced a prompt longer than the context
+    window and llama.cpp raised instead of answering.
+    """
+    margin = int(getattr(Config, "CTX_SAFETY_MARGIN", 192))
+    budget = n_ctx - estimate_tokens(fixed_text) - max_new_tokens - margin
+    return max(budget, 256)
 
 
 @dataclass
@@ -124,30 +143,50 @@ class LlamaGenerator:
         if show_progress:
             logger.info(f"Loading GGUF model: {model_path}")
 
-        n_gpu_layers = 0
+        # Ask llama.cpp itself, not torch. torch.cuda.is_available() only says
+        # the machine has a GPU -- it says nothing about whether THIS llama.cpp
+        # build has a GPU backend compiled in. The old code set n_gpu_layers=-1
+        # on a CPU-only wheel, which llama.cpp silently ignores, so the logs
+        # claimed GPU acceleration that was never happening.
+        n_gpu_layers = int(getattr(Config, "N_GPU_LAYERS", -1))
+        gpu_capable = False
         try:
-            import torch
+            import llama_cpp
 
-            if torch.cuda.is_available():
-                n_gpu_layers = -1
-                if show_progress:
-                    logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
-        except ImportError:
-            pass
+            gpu_capable = bool(llama_cpp.llama_supports_gpu_offload())
+        except Exception as e:  # pragma: no cover - depends on the wheel
+            logger.debug(f"Could not query GPU offload support: {e}")
 
-        n_threads = os.cpu_count() or 4
+        if n_gpu_layers != 0 and not gpu_capable:
+            logger.warning(
+                "Config.N_GPU_LAYERS=%s requests GPU offload, but this "
+                "llama-cpp-python build has no GPU backend "
+                "(llama_supports_gpu_offload() is False). Running on CPU. "
+                "Rebuild with CMAKE_ARGS=\"-DGGML_CUDA=on\" to use the GPU.",
+                n_gpu_layers,
+            )
+            n_gpu_layers = 0
+        elif n_gpu_layers != 0:
+            logger.info(f"GPU offload enabled (n_gpu_layers={n_gpu_layers})")
+
+        n_threads = int(getattr(Config, "N_THREADS", 0) or 0) or os.cpu_count() or 4
+        self.n_ctx = int(getattr(Config, "N_CTX", 4096))
 
         self.model = Llama(
             model_path=str(model_path),
-            n_ctx=2048,
+            n_ctx=self.n_ctx,
             n_gpu_layers=n_gpu_layers,
-            n_batch=256,
+            n_batch=int(getattr(Config, "N_BATCH", 512)),
             n_threads=n_threads,
             verbose=False,
         )
 
         if show_progress:
-            logger.info("Model loaded successfully")
+            logger.info(
+                f"Model loaded (n_ctx={self.n_ctx}, n_batch="
+                f"{getattr(Config, 'N_BATCH', 512)}, n_threads={n_threads}, "
+                f"gpu_layers={n_gpu_layers})"
+            )
         self._is_loaded = True
 
     def _call_api(
@@ -202,12 +241,40 @@ class LlamaGenerator:
         "unable to find",
         "no information available",
         "not enough information",
+        # Models routinely refuse in wording the list above missed, and an
+        # undetected refusal keeps its citations -- so a "none of these passages
+        # mention X" answer was shipping 4 bogus sources to the UI.
+        "none of the provided",
+        "none of the passages",
+        "none of the context",
+        "do not mention",
+        "does not mention",
+        "doesn't mention",
+        "not mentioned in",
+        "cannot provide an answer",
+        "no mention of",
     ]
+
+    # Models phrase refusals in endless variants ("I'm unable to answer ... as
+    # it does not contain any relevant information"), and an undetected refusal
+    # keeps its citations -- which is how a non-answer ends up showing the user
+    # four fabricated sources. Match the shape instead of enumerating wordings.
+    _REFUSAL_RE = re.compile(
+        r"\b(?:do(?:es)?\s+not|don'?t|doesn'?t|cannot|can'?t|could\s+not|"
+        r"couldn'?t|unable\s+to|no|none\s+of)\b[^.]{0,60}?\b"
+        r"(?:answer|contain|mention|find|provide|relevant|information)\b",
+        re.IGNORECASE,
+    )
 
     @staticmethod
     def _is_refusal(text: str) -> bool:
-        lower = text.lower()
-        return any(p in lower for p in LlamaGenerator._REFUSAL_PHRASES)
+        # Only the FIRST SENTENCE counts, for both checks. A real answer may say
+        # "the passages do not mention ultrasound, but describe MRI [2]" in its
+        # second sentence -- that is an answer. Refusals lead with the refusal.
+        first = re.split(r"(?<=[.!?])\s", text.lower().strip(), maxsplit=1)[0]
+        if any(p in first for p in LlamaGenerator._REFUSAL_PHRASES):
+            return True
+        return bool(LlamaGenerator._REFUSAL_RE.search(first))
 
     @staticmethod
     def _extract_cited_indices(text: str) -> set:
@@ -251,8 +318,8 @@ class LlamaGenerator:
         query: str,
         chunks: List[dict],
         include_sources: bool = True,
-        max_new_tokens: int = 128,
-        temperature: float = 0.1,
+        max_new_tokens: int = Config.MAX_NEW_TOKENS,
+        temperature: float = Config.GEN_TEMPERATURE,
         conversation_context: List[dict] = None,
     ) -> GenerationResult:
         if not chunks:
@@ -285,24 +352,28 @@ class LlamaGenerator:
                 model_used=self.model_name,
             )
 
-        context = format_context_for_generation(
-            valid_chunks, include_source=include_sources, max_chunks=5
+        system_message = SYSTEM_PROMPT
+
+        # Budget the passages against the real context window rather than
+        # assuming five always fit.
+        history_preview = ""
+        if conversation_context:
+            history_preview = " ".join(
+                str(t.get("content", ""))[:150] for t in conversation_context[-2:]
+            )
+        budget = _context_budget(
+            n_ctx=getattr(self, "n_ctx", None) or int(getattr(Config, "N_CTX", 4096)),
+            fixed_text=system_message + query + history_preview,
+            max_new_tokens=max_new_tokens,
         )
 
-        system_message = """You are a factual Q&A assistant. Answer ONLY from the provided context.
-STRICT RULES:
-1. Use ONLY facts stated in the context below — nothing else.
-2. You MUST cite sources inline as [1], [2], etc. for EVERY factual claim.
-3. You MUST cite ALL context passages that contain information relevant to the question — do not skip any relevant passage.
-4. If the context lacks sufficient information, say ONLY: "I could not find relevant information in the available sources." Do NOT cite any source numbers or file names.
-5. Be concise. Do NOT pad your answer.
-6. NEVER invent or guess URLs, links, dates, statistics, or references.
-7. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.
-8. Do NOT add References, Sources, Bibliography, or Citation sections.
-9. Do NOT generate content beyond what the context provides.
-10. If NONE of the context passages relate to the question, do NOT cite any sources — respond only with the refusal message from rule 4.
-11. CRITICAL: Every factual statement MUST include at least one inline citation. Missing a citation is unacceptable.
-12. CRITICAL: If a passage is relevant, you MUST cite it. Omitting a relevant passage citation is unacceptable."""
+        context = format_context_for_generation(
+            valid_chunks,
+            include_source=include_sources,
+            max_chunks=int(getattr(Config, "MAX_CONTEXT_CHUNKS", 5)),
+            token_budget=budget,
+            char_limit=int(getattr(Config, "CHUNK_CHAR_LIMIT", 1200)),
+        )
 
         user_message = f"""CONTEXT:
 {context}
@@ -516,8 +587,8 @@ class MmapGenerator:
         query: str,
         chunks: List[dict],
         include_sources: bool = True,
-        max_new_tokens: int = 200,
-        temperature: float = 0.6,
+        max_new_tokens: int = Config.MAX_NEW_TOKENS,
+        temperature: float = Config.GEN_TEMPERATURE,
         conversation_context: List[dict] = None,
     ) -> GenerationResult:
 
@@ -549,28 +620,25 @@ class MmapGenerator:
                 model_used=self.model_name,
             )
 
-        context = format_context_for_generation(
-            valid_chunks, include_source=include_sources, max_chunks=5
+        system_message = SYSTEM_PROMPT
+
+        history_preview = ""
+        if conversation_context:
+            history_preview = " ".join(
+                str(t.get("content", ""))[:150] for t in conversation_context[-2:]
+            )
+        budget = _context_budget(
+            n_ctx=int(getattr(Config, "N_CTX", 4096)),
+            fixed_text=system_message + query + history_preview,
+            max_new_tokens=max_new_tokens,
         )
 
-        system_message = (
-            "You are a factual Q&A assistant. Answer ONLY from the provided context.\n"
-            "STRICT RULES:\n"
-            "1. Use ONLY facts stated in the context below — nothing else.\n"
-            "2. You MUST cite sources inline as [1], [2], etc. for EVERY factual claim.\n"
-            "3. You MUST cite ALL context passages that contain information relevant to the question — do not skip any relevant passage.\n"
-            "4. If the context lacks sufficient information, say ONLY: "
-            '"I could not find relevant information in the available sources." '
-            "Do NOT cite any source numbers or file names.\n"
-            "5. Be concise. Do NOT pad your answer.\n"
-            "6. NEVER invent or guess URLs, links, dates, statistics, or references.\n"
-            "7. NEVER mention PDF metadata, file formats, ReportLab, or how documents were created.\n"
-            "8. Do NOT add References, Sources, Bibliography, or Citation sections.\n"
-            "9. Do NOT generate content beyond what the context provides.\n"
-            "10. If NONE of the context passages relate to the question, do NOT cite any sources — "
-            "respond only with the refusal message from rule 4.\n"
-            "11. CRITICAL: Every factual statement MUST include at least one inline citation. Missing a citation is unacceptable.\n"
-            "12. CRITICAL: If a passage is relevant, you MUST cite it. Omitting a relevant passage citation is unacceptable."
+        context = format_context_for_generation(
+            valid_chunks,
+            include_source=include_sources,
+            max_chunks=int(getattr(Config, "MAX_CONTEXT_CHUNKS", 5)),
+            token_budget=budget,
+            char_limit=int(getattr(Config, "CHUNK_CHAR_LIMIT", 1200)),
         )
 
         user_message = (
@@ -588,8 +656,10 @@ class MmapGenerator:
             history_str = "\n".join(history_lines)
             user_message = f"CONVERSATION HISTORY:\n{history_str}\n\n{user_message}"
 
-        # Wrap in Mistral [INST] tags — the C++ backend has no chat template
-        prompt = f"[INST] <<SYS>>\n{system_message}\n<</SYS>>\n\n{user_message} [/INST]"
+        # The C++ backend has no chat template, so wrap here. This used to be
+        # hardcoded to Mistral's [INST] <<SYS>> form, which produces garbage for
+        # any other model -- including the StableLM-Zephyr default.
+        prompt = wrap_prompt(system_message, user_message)
 
         try:
             raw_text = self._generate_via_backend(prompt)

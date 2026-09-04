@@ -12,7 +12,8 @@ openai-whisper
 pydub
 
 
-faiss-gpu-cu12
+# Swap for faiss-gpu-cu12 on a CUDA 12 host; both Dockerfiles build CPU-only.
+faiss-cpu
 
 python-docx
 PyPDF2
@@ -22,7 +23,10 @@ numpy
 tqdm
 pyyaml
 pydantic
+python-dotenv
 fastapi
+sqlalchemy
+psycopg2-binary
 pyinstaller
 passlib
 argon2_cffi

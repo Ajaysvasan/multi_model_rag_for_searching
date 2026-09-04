@@ -35,8 +35,18 @@ except ImportError:
 # =========================================================================
 
 class TestConfig:
-    def test_generation_model_is_mistral_7b(self):
-        assert "Mistral-7B" in Config.GENERATION_MODEL
+    def test_inference_settings_are_sane(self):
+        assert Config.N_CTX >= 2048
+        assert Config.N_BATCH >= 256
+        # The prompt plus a full-length answer has to fit the context window.
+        assert Config.MAX_NEW_TOKENS + Config.CTX_SAFETY_MARGIN < Config.N_CTX
+        assert Config.PROMPT_TEMPLATE in {"zephyr", "mistral", "plain"}
+
+    def test_generation_model_is_a_gguf_repo(self):
+        # Model-agnostic on purpose: pinning the name here meant every model
+        # change broke a test that was not about the model choice.
+        assert Config.GENERATION_MODEL
+        assert Config.GENERATION_MODEL_FILE.endswith(".gguf")
 
     def test_default_model_matches_generation_model(self):
         assert Config.DEFAULT_MODEL == Config.GENERATION_MODEL
@@ -63,7 +73,9 @@ class TestModelFile:
         model_path = Path(BACKEND_ROOT) / "models" / Config.GENERATION_MODEL_FILE
         if model_path.exists():
             size_gb = model_path.stat().st_size / (1024 ** 3)
-            assert size_gb > 3, f"Model file too small ({size_gb:.2f} GB), likely truncated"
+            # A Q4_K_M GGUF of any usable size is comfortably over 1 GB; the old
+            # 3 GB floor only held for the 7B model.
+            assert size_gb > 1, f"Model file too small ({size_gb:.2f} GB), likely truncated"
 
 
 class TestGeneratorImports:

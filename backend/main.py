@@ -39,14 +39,21 @@ from security_layer.auth import (
 from system_services.server.ingestion_orchestrator import ingestion_pipeline
 from system_services.server.pg_chunk_store import PgChunkStore
 
-parser = argparse.ArgumentParser(description="Mode")
-subparser = parser.add_subparsers(dest="command", help="avaliable commands")
-subparser.add_parser(
-    "fsearch", help="To make the RAG To work as a multimodal file searching model"
-)
-subparser.add_parser("bot", help="To make the RAG to work as a medical chat bot")
+def parse_cli_args():
+    """Parse the mode subcommand.
 
-args = parser.parse_args()
+    Only called from __main__ — at import time sys.argv belongs to whatever
+    imported us (uvicorn, pytest, ...) and parsing it would exit the process.
+    """
+    parser = argparse.ArgumentParser(description="Mode")
+    subparser = parser.add_subparsers(dest="command", help="avaliable commands")
+    subparser.add_parser(
+        "fsearch", help="To make the RAG To work as a multimodal file searching model"
+    )
+    subparser.add_parser("bot", help="To make the RAG to work as a medical chat bot")
+
+    return parser.parse_args()
+
 
 state = {
     "shared": None,
@@ -326,6 +333,8 @@ def query_endpoint(query: Query):
 
 if __name__ == "__main__":
     import uvicorn
+
+    args = parse_cli_args()
 
     uvicorn.run(
         "main:app",

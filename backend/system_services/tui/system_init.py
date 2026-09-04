@@ -101,7 +101,7 @@ def initialize_system(ingestion_config=None):
         print(f"       Found cached model: {Config.GENERATION_MODEL}")
     else:
         print(f"       Downloading model: {Config.GENERATION_MODEL}")
-        print("       This is a one-time download (~16GB)...")
+        print("       This is a one-time download...")
     generator.load_model(show_progress=True)
     print("LLM ready")
 

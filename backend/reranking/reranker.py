@@ -39,6 +39,7 @@ class CrossEncoderReranker:
         model_name: str = "",
         min_score: float = 0.3,
         top_k: int = 0,
+        min_keep: int = 3,
     ):
         self.model_name = model_name or getattr(
             Config, "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -49,6 +50,12 @@ class CrossEncoderReranker:
             else getattr(Config, "MIN_RELEVANCE_SCORE", 0.3)
         )
         self.top_k = top_k or getattr(Config, "RERANK_TOP_K", 5)
+        # Floor: how many candidates to keep when *everything* scores below
+        # min_score. Returning an empty list turns a correct retrieval into
+        # "I couldn't find any relevant information", which is far worse than
+        # passing a few weak passages to a generator that is instructed to
+        # refuse when they do not answer the question.
+        self.min_keep = max(0, min_keep)
 
         self._model = None
 
@@ -123,9 +130,26 @@ class CrossEncoderReranker:
 
         results.sort(key=lambda x: x.score, reverse=True)
 
-        results = [r for r in results if r.score >= self.min_score]
+        above_threshold = [r for r in results if r.score >= self.min_score]
 
-        results = results[: self.top_k]
+        if not above_threshold and results and self.min_keep > 0:
+            # Cross-encoder scores are calibrated for short, search-style
+            # queries. A conversational one ("I need files containing
+            # information about X") scores every passage far below threshold
+            # even when the top hit is exactly right -- measured at -6.2 logit
+            # versus +6.5 for the bare topic. Falling back to the best-ranked
+            # candidates keeps the ordering benefit without discarding the
+            # retrieval.
+            kept = results[: min(self.min_keep, self.top_k)]
+            logger.warning(
+                f"Reranking: no chunk reached min_score={self.min_score} "
+                f"(best={results[0].score:.4f}); keeping the top {len(kept)} by "
+                f"rank instead of returning nothing. A very low best score "
+                f"usually means the query still contains request phrasing."
+            )
+            results = kept
+        else:
+            results = above_threshold[: self.top_k]
 
         logger.info(f"Reranking complete: {len(results)} chunks passed threshold")
         for i, r in enumerate(results[:3]):  # Log top 3

@@ -25,7 +25,7 @@ def main():
         print("Delete it manually if you want to re-download.")
         return 0
 
-    print("Downloading model (~4.4GB)...")
+    print(f"Downloading {Config.GENERATION_MODEL_FILE}...")
     print("This may take several minutes...\n")
 
     try:

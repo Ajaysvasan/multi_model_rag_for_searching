@@ -16,4 +16,9 @@ def test_generation_layer_imports():
 def test_generation_fallback_model():
     """Test that the generation layer config fallback is configured properly."""
     from config import Config
-    assert Config.GENERATION_MODEL == "TheBloke/stablelm-zephyr-3b-GGUF"
+    # Model-agnostic: this test is about the fallback wiring, not about which
+    # model is currently selected. Hardcoding a name here made it fail on every
+    # model change for reasons unrelated to what it claims to check.
+    assert Config.GENERATION_MODEL
+    assert Config.DEFAULT_MODEL == Config.GENERATION_MODEL
+    assert Config.GENERATION_MODEL_FILE.endswith(".gguf")

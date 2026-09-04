@@ -87,21 +87,94 @@ class QueryRouter:
 
 
 class QueryProcessing:
-    FILLER_PATTERNS = [
-        r"^(i\s+want|i\s+need|can\s+you|please)\s+(find|get|give|show|search|look\s+for|retrieve)\s+(me\s+)?\s*(a\s+|the\s+|some\s+)?(file|document|info|information|data|content|text|article)s?\s*(which|that|about|on|regarding|related\s+to|with\s+information\s+(about|on))?\s*",
-        r"^(find|get|give|show|search|look\s+for|retrieve)\s+(me\s+)?\s*(a\s+|the\s+|some\s+)?(file|document|info|information|data|content|text|article)s?\s*(which|that|about|on|regarding|related\s+to|with\s+information\s+(about|on))?\s*",
-        r"^(tell\s+me|what\s+is|what\s+are|explain)\s+(about|regarding)?\s*",
+    # The reranker is a MS MARCO passage-ranking cross-encoder: it scores "does
+    # this passage answer this query". Leave the request framing in ("I need
+    # files containing information about X") and it correctly decides that a
+    # passage about X does not answer a question about *needing files* --
+    # measured at -6.2 logit versus +6.5 for the bare topic. Every candidate
+    # then falls below min_score and the user is told nothing was found.
+    #
+    # The old single-pass patterns required subject and verb to be adjacent
+    # ("i need" immediately followed by "find"), so the common phrasings all
+    # slipped through. These are applied repeatedly until the text stops
+    # changing, which handles the pieces appearing in any order.
+    FRAMING_PATTERNS = [
+        r"^(?:please|kindly)\s+",
+        r"^(?:hey|hi|hello)[,\s]+",
+        r"^(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?",
+        r"^(?:do|did)\s+you\s+have\s+(?:any\s+)?",
+        r"^i\s*(?:'m|\s+am)\s+looking\s+for\s+",
+        r"^i\s+(?:want|need|require|would\s+like)\s+(?:to\s+)?",
+        r"^(?:find|get|give|show|search|look|retrieve|fetch|locate|provide|list)\s+"
+        r"(?:for\s+)?(?:me\s+)?(?:out\s+)?",
+        r"^(?:tell|inform)\s+me\s+(?:about|regarding)?\s*",
+        r"^(?:what|which)\s+(?:is|are|was|were)\s+",
+        r"^explain\s+(?:to\s+me\s+)?(?:about|regarding)?\s*",
     ]
+
+    # A document noun is only filler when it introduces the topic, so a
+    # connector is REQUIRED. Without that guard "the data protection act" would
+    # lose "data" and become "protection act".
+    _DOC_NOUN = (
+        r"(?:files?|documents?|docs?|info(?:rmation)?|data|contents?|texts?|"
+        r"articles?|papers?|reports?|records?|pdfs?|sources?)"
+    )
+    _CONNECTOR = (
+        r"(?:that\s+(?:contains?|has|have|mentions?|discuss(?:es)?)|"
+        r"which\s+(?:contains?|has|have|mentions?|discuss(?:es)?)|"
+        r"contain(?:s|ing)?|mentioning|discussing|"
+        r"with\s+information\s+(?:about|on)|related\s+to|regarding|about|on)"
+    )
+    TOPIC_NOUN_PATTERNS = [
+        rf"^{_DOC_NOUN}\s+{_CONNECTOR}\s+",
+        rf"^(?:a|an|the|some|any|all)\s+{_DOC_NOUN}\s+{_CONNECTOR}\s+",
+    ]
+
+    LEADING_CONNECTOR = r"^(?:about|regarding|concerning|related\s+to)\s+"
+    LEADING_ARTICLE = r"^(?:a|an|the)\s+"
+
+    # Kept as an alias: older code and docs refer to this name.
+    FILLER_PATTERNS = FRAMING_PATTERNS
 
     def __init__(self, conversation_memory, embedding_model=None):
         self.conversation_memory = conversation_memory
         self.embedding_model = embedding_model
 
     def _extract_query_intent(self, query: str) -> str:
+        """Strip request framing so the reranker sees the topic, not the ask.
+
+        Conservative by construction: anything that would leave nothing
+        meaningful behind is abandoned and the original query is returned.
+        """
         cleaned = query.strip()
-        for pattern in self.FILLER_PATTERNS:
-            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
-        if len(cleaned) < 3:
+
+        # Repeat until stable -- one pass cannot handle "can you show me the
+        # documents about X", where three layers of framing nest.
+        for _ in range(6):
+            before = cleaned
+            for pattern in (
+                self.FRAMING_PATTERNS
+                + self.TOPIC_NOUN_PATTERNS
+                + [self.LEADING_CONNECTOR]
+            ):
+                cleaned = re.sub(pattern, "", cleaned, count=1, flags=re.IGNORECASE).strip()
+            if cleaned == before:
+                break
+
+        # A bare leading article adds nothing for retrieval ("the cancer").
+        stripped_article = re.sub(
+            self.LEADING_ARTICLE, "", cleaned, count=1, flags=re.IGNORECASE
+        ).strip()
+        if len(stripped_article) >= 3:
+            cleaned = stripped_article
+
+        # Trailing punctuation adds nothing and splits the cache: the topic
+        # label is the cache key, so "cancer?" and "cancer" would otherwise be
+        # two separate entries for the same question.
+        cleaned = re.sub(r"[\s?!.,;:]+$", "", cleaned)
+
+        # Guard: never hand back something with no content words.
+        if len(cleaned) < 3 or not re.search(r"[a-zA-Z]", cleaned):
             return query
         return cleaned
 
