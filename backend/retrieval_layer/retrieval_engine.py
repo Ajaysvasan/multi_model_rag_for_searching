@@ -83,7 +83,7 @@ class QueryRouter:
 
 
 # Making this separate class so that when using mmap in C++ the integration and the multi threading can be handles in a more modular way
-# Also this class can be extended in the future and also it introduces separation of concers and no GOD file concepts
+# Also this class can be extended in the future and also it introduces separation of concerns and no GOD file concepts
 
 
 class QueryProcessing:
